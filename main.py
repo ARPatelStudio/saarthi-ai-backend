@@ -1,50 +1,61 @@
 import os
-from fastapi import FastAPI, HTTPException, WebSocket
+import logging
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from groq import Groq
+from groq import AsyncGroq # 2026 Standard: Using Async client
 from dotenv import load_dotenv
+
+# Logs enable karein taki Render mein asli wajah dikhe
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(_name_)
 
 load_dotenv()
 
-app = FastAPI(title="Saarthi AI Core", version="2.0.0")
+app = FastAPI(title="Saarthi AI Core", version="2.1.0")
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-client = Groq(api_key=GROQ_API_KEY)
+# API Key check
+api_key = os.getenv("GROQ_API_KEY")
+if not api_key:
+    logger.error("❌ GROQ_API_KEY is missing in Environment Variables!")
+
+# Async Client Initialize
+client = AsyncGroq(api_key=api_key)
 
 class ChatRequest(BaseModel):
     message: str
-    system_prompt: str = "You are Saarthi, a highly advanced, intelligent personal AI assistant."
+    system_prompt: str = "You are Saarthi, a smart AI assistant. Response should be in Hinglish."
 
 class ChatResponse(BaseModel):
     reply: str
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI Server is Online and Running on Render!"}
+    return {"status": "🟢 Saarthi AI is Online!"}
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_with_saarthi(request: ChatRequest):
     try:
-        chat_completion = client.chat.completions.create(
+        logger.info(f"📩 Received message: {request.message}")
+        
+        # Async call for 2026 performance
+        chat_completion = await client.chat.completions.create(
             messages=[
                 {"role": "system", "content": request.system_prompt},
                 {"role": "user", "content": request.message}
             ],
-            model="llama3-70b-8192",
+            model="llama3-8b-8192", # Stable model ID
             temperature=0.7,
             max_tokens=1024,
         )
-        return {"reply": chat_completion.choices[0].message.content}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Groq API Error: {str(e)}")
+        
+        reply_text = chat_completion.choices[0].message.content
+        logger.info("✅ Groq responded successfully")
+        return {"reply": reply_text}
 
-@app.websocket("/ws/avatar")
-async def avatar_websocket(websocket: WebSocket):
-    await websocket.accept()
-    await websocket.send_text("Avatar Core Connected.")
-    try:
-        while True:
-            data = await websocket.receive_text()
-            await websocket.send_text(f"[Processing Animation for: {data}]")
     except Exception as e:
-        print(f"WebSocket Error: {e}")
+        # 🚨 Yeh line Render ke Logs mein asli error dikhayegi
+        logger.error(f"💥 CRITICAL ERROR: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Saarthi Brain Error: {str(e)}"
+        )
