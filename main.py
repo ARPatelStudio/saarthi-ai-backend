@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from groq import AsyncGroq
 from dotenv import load_dotenv
+from duckduckgo_search import DDGS # 🚀 NAYA: Web Search Engine
 
 # Logs Setup
 logging.basicConfig(level=logging.INFO)
@@ -16,8 +17,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version Updated for Roman Script Enforcement
-app = FastAPI(title="Saarthi AI Core", version="5.6.0") 
+# Version Updated for Roman Script Enforcement + Web Search
+app = FastAPI(title="Saarthi AI Core", version="6.0.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -31,12 +32,13 @@ WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
 class ChatRequest(BaseModel):
     message: str
-    # 🚀 SYSTEM PROMPT UPGRADE: Strict instruction to only use A-Z letters
+    # 🚀 SYSTEM PROMPT UPGRADE: Strict instruction to only use A-Z letters AND use Web Search
     system_prompt: str = """You are Saarthi (Jarvis), a smart AI assistant. 
     CRITICAL RULE: You MUST write your responses ONLY using the English/Latin alphabet (A-Z). 
     Speak in 'Hinglish' (Hindi words written in English letters). 
     NEVER output Devanagari (हिंदी) or Urdu scripts. 
-    Example: Write 'Theek hai boss' instead of 'ठीक है बॉस'. Keep it short and crisp."""
+    Example: Write 'Theek hai boss' instead of 'ठीक है बॉस'. Keep it short and crisp.
+    If the user asks for real-time info, news, or prices (like iPhone 17), USE the perform_web_search tool!"""
     android_memory: str = "" 
 
 class ChatResponse(BaseModel):
@@ -48,11 +50,25 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (Roman Script Enforced + Comm Hub Ready)!"}
+    return {"status": "🟢 Saarthi AI is Online (Roman Script Enforced + Web Search + Comm Hub Ready)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
 # ==========================================
+
+# 🚀 NAYA TOOL: LIVE WEB SEARCH
+def perform_web_search(query: str):
+    logger.info(f"🔍 Searching Web for: {query}")
+    try:
+        results = DDGS().text(query, max_results=3)
+        if not results:
+            return "Web par kuch nahi mila boss."
+        summary = "\n".join([f"- {r['title']}: {r['body']}" for r in results])
+        return f"Live Web Data for '{query}':\n{summary}\n\nRead this data and give a short, helpful Hinglish reply to the boss."
+    except Exception as e:
+        logger.error(f"Search Error: {e}")
+        return "Search engine mein issue hai boss."
+
 
 # 1. WEATHER API TOOL
 def get_live_weather(location: str):
@@ -76,6 +92,19 @@ def get_live_weather(location: str):
 
 # Tool Descriptions for Groq
 saarthi_tools = [
+    # 🚀 ADDED WEB SEARCH TO LLM
+    {
+        "type": "function",
+        "function": {
+            "name": "perform_web_search",
+            "description": "Search the internet for real-time information, latest news, prices (e.g., iPhone 17 price), or anything you don't know.",
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string", "description": "The exact search query."}},
+                "required": ["query"]
+            }
+        }
+    },
     {
         "type": "function",
         "function": {
@@ -213,8 +242,14 @@ async def chat_with_saarthi(request: ChatRequest):
                 func_name = tool_call.function.name
                 func_args = json.loads(tool_call.function.arguments)
                 
+                # 🚀 WEB SEARCH EXECUTION
+                if func_name == "perform_web_search":
+                    query = func_args.get("query")
+                    web_data = perform_web_search(query)
+                    messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": web_data})
+
                 # ACTION: OPEN GOOGLE MAPS
-                if func_name == "navigate_to":
+                elif func_name == "navigate_to":
                     destination = func_args.get("destination")
                     logger.info(f"🗺️ Sending Maps Signal for: {destination}")
                     return ChatResponse(
@@ -274,8 +309,8 @@ async def chat_with_saarthi(request: ChatRequest):
                         "content": weather_data,
                     })
 
-            # Agar Weather tool call hua tha, toh Groq ko dubara bulakar final answer banwao
-            if any(tc.function.name == "get_live_weather" for tc in tool_calls):
+            # Agar Web Search ya Weather hua hai, toh LLM se final answer maango
+            if any(tc.function.name in ["perform_web_search", "get_live_weather"] for tc in tool_calls):
                 second_response = await client.chat.completions.create(
                     model="llama-3.1-8b-instant",
                     messages=messages
@@ -293,7 +328,7 @@ async def chat_with_saarthi(request: ChatRequest):
         raise HTTPException(status_code=500, detail=f"Saarthi Brain Error: {str(e)}")
 
 # ==========================================
-# 👂 THE EARS: Audio Transcription Endpoint
+# 👂 THE EARS: Audio Transcription Endpoint (Unchanged & Safe)
 # ==========================================
 @app.post("/api/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
