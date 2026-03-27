@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version Updated for Phase 2: Communication Hub + Hinglish Strict Rules
-app = FastAPI(title="Saarthi AI Core", version="5.5.0") 
+# Version Updated for Roman Script Enforcement
+app = FastAPI(title="Saarthi AI Core", version="5.6.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -31,8 +31,12 @@ WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
 class ChatRequest(BaseModel):
     message: str
-    # 🚀 SYSTEM PROMPT UPGRADE: Hinglish + Strict Instructions
-    system_prompt: str = "You are Saarthi (Jarvis), a smart AI assistant. Speak strictly in modern 'Hinglish' (a natural mix of Hindi and English). Keep responses very short and crisp. Always address the user as 'Boss'."
+    # 🚀 SYSTEM PROMPT UPGRADE: Strict instruction to only use A-Z letters
+    system_prompt: str = """You are Saarthi (Jarvis), a smart AI assistant. 
+    CRITICAL RULE: You MUST write your responses ONLY using the English/Latin alphabet (A-Z). 
+    Speak in 'Hinglish' (Hindi words written in English letters). 
+    NEVER output Devanagari (हिंदी) or Urdu scripts. 
+    Example: Write 'Theek hai boss' instead of 'ठीक है बॉस'. Keep it short and crisp."""
     android_memory: str = "" 
 
 class ChatResponse(BaseModel):
@@ -44,7 +48,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (Hinglish + Comm Hub Ready)!"}
+    return {"status": "🟢 Saarthi AI is Online (Roman Script Enforced + Comm Hub Ready)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
@@ -213,7 +217,6 @@ async def chat_with_saarthi(request: ChatRequest):
                 if func_name == "navigate_to":
                     destination = func_args.get("destination")
                     logger.info(f"🗺️ Sending Maps Signal for: {destination}")
-                    # Note: Dialogue Android app handle karegi, hum yahan se logic bhejenge.
                     return ChatResponse(
                         reply="Processing request, boss.",
                         action="OPEN_MAPS",
@@ -290,7 +293,7 @@ async def chat_with_saarthi(request: ChatRequest):
         raise HTTPException(status_code=500, detail=f"Saarthi Brain Error: {str(e)}")
 
 # ==========================================
-# 👂 THE EARS: Audio Transcription Endpoint (Unchanged & Safe)
+# 👂 THE EARS: Audio Transcription Endpoint
 # ==========================================
 @app.post("/api/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
@@ -303,9 +306,11 @@ async def transcribe_audio(file: UploadFile = File(...)):
             temp_file_path = temp_audio.name
 
         with open(temp_file_path, "rb") as audio_file:
+            # 🚀 PROMPT UPGRADE: Instructing Whisper to output text in Roman alphabet
             transcription = await client.audio.transcriptions.create(
                 file=(file.filename, audio_file.read()),
-                model="whisper-large-v3", 
+                model="whisper-large-v3",
+                prompt="Haan boss, bataiye. Main bilkul theek hoon. Youtube open kar do.", 
                 response_format="json"
             )
         
