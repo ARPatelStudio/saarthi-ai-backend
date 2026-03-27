@@ -12,11 +12,11 @@ from dotenv import load_dotenv
 
 # Logs Setup
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(_name_)
 
 load_dotenv()
 
-app = FastAPI(title="Saarthi AI Core", version="3.5.0") # Version Updated for Maps & Weather
+app = FastAPI(title="Saarthi AI Core", version="4.0.0") # Version Updated for Device Control
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -35,13 +35,13 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     reply: str
-    action: str = "NONE"          # Signal for Android (SAVE_MEMORY, OPEN_MAPS, etc.)
+    action: str = "NONE"          # Signal for Android (SAVE_MEMORY, OPEN_MAPS, CONTROL_DEVICE, etc.)
     action_data1: str = ""        # Extra data for action
     action_data2: str = ""
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (Audio + Weather + Maps Ready)!"}
+    return {"status": "🟢 Saarthi AI is Online (Audio + Weather + Maps + Device Control Ready)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
@@ -107,6 +107,29 @@ saarthi_tools = [
                 "required": ["info_key", "info_value"]
             }
         }
+    },
+    # 🚀 NAYA TOOL: PHONE CONTROL & APP OPENER
+    {
+        "type": "function",
+        "function": {
+            "name": "control_device",
+            "description": "Control the Android phone's hardware, media, or open/close applications.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string", 
+                        "enum": ["open_app", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "close_app"],
+                        "description": "What to do: open/close an app, turn flashlight on/off, or control media playback."
+                    },
+                    "app_package": {
+                        "type": "string", 
+                        "description": "If opening an app, guess the exact Android package name (e.g., com.whatsapp, com.google.android.youtube, com.instagram.android). Leave empty for others."
+                    }
+                },
+                "required": ["action"]
+            }
+        }
     }
 ]
 
@@ -149,7 +172,7 @@ async def chat_with_saarthi(request: ChatRequest):
         response_message = chat_completion.choices[0].message
         tool_calls = response_message.tool_calls
 
-        # 3. IF GROQ DECIDES TO USE TOOLS (Maps, Memory, or Weather)
+        # 3. IF GROQ DECIDES TO USE TOOLS
         if tool_calls:
             messages.append(response_message)
             
@@ -179,7 +202,34 @@ async def chat_with_saarthi(request: ChatRequest):
                         action_data2=val
                     )
                     
-                # ACTION: FETCH WEATHER (Background process, no signal to Android)
+                # 🚀 ACTION: CONTROL DEVICE (Flashlight / Apps / Media)
+                elif func_name == "control_device":
+                    action_type = func_args.get("action")
+                    app_pkg = func_args.get("app_package", "")
+                    
+                    logger.info(f"📱 Device Control Signal: {action_type} -> {app_pkg}")
+                    
+                    if action_type == "flashlight_on":
+                        reply_msg = "Theek hai boss, light on kar di hai."
+                    elif action_type == "flashlight_off":
+                        reply_msg = "Theek hai boss, light band kar di."
+                    elif action_type == "open_app":
+                        reply_msg = "Lijiye boss, app khol raha hoon."
+                    elif action_type in ["media_play", "media_pause", "media_stop"]:
+                        reply_msg = "Theek hai boss."
+                    elif action_type == "close_app":
+                        reply_msg = "App hata di hai boss."
+                    else:
+                        reply_msg = "Kaam ho gaya boss."
+
+                    return ChatResponse(
+                        reply=reply_msg,
+                        action="CONTROL_DEVICE",
+                        action_data1=action_type,
+                        action_data2=app_pkg
+                    )
+                    
+                # ACTION: FETCH WEATHER (Background process)
                 elif func_name == "get_live_weather":
                     location = func_args.get("location")
                     weather_data = get_live_weather(location)
