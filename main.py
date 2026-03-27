@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version Updated for Phase 2: Communication Hub
-app = FastAPI(title="Saarthi AI Core", version="5.0.0") 
+# Version Updated for Phase 2: Communication Hub + Hinglish Strict Rules
+app = FastAPI(title="Saarthi AI Core", version="5.5.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -31,19 +31,20 @@ WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
 class ChatRequest(BaseModel):
     message: str
-    system_prompt: str = "You are Saarthi, a smart AI assistant. Response should be in Hinglish."
-    android_memory: str = "" # Android apni memory bhejne ke liye use karega
+    # 🚀 SYSTEM PROMPT UPGRADE: Hinglish + Strict Instructions
+    system_prompt: str = "You are Saarthi (Jarvis), a smart AI assistant. Speak strictly in modern 'Hinglish' (a natural mix of Hindi and English). Keep responses very short and crisp. Always address the user as 'Boss'."
+    android_memory: str = "" 
 
 class ChatResponse(BaseModel):
     reply: str
-    action: str = "NONE"          # Signal for Android
-    action_data1: str = ""        # Extra data 1 (Method: call/whatsapp)
-    action_data2: str = ""        # Extra data 2 (Contact Name)
-    action_data3: str = ""        # 🚀 NAYA: WhatsApp message text ke liye
+    action: str = "NONE"          
+    action_data1: str = ""        
+    action_data2: str = ""        
+    action_data3: str = ""        
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (Audio + Weather + Maps + Device Control + Comm Hub Ready)!"}
+    return {"status": "🟢 Saarthi AI is Online (Hinglish + Comm Hub Ready)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
@@ -53,21 +54,21 @@ async def root():
 def get_live_weather(location: str):
     logger.info(f"☁️ Fetching live weather for: {location}")
     if not WEATHER_API_KEY:
-        return f"{location} ka live mausam abhi nahi bata sakta, API key missing hai."
+        return f"Weather API key missing hai boss, check kar lijiye."
     
     try:
         url = f"http://api.openweathermap.org/data/2.5/weather?q={location}&appid={WEATHER_API_KEY}&units=metric&lang=hi"
         response = requests.get(url).json()
         
         if response.get("cod") != 200:
-            return f"Maaf karna, mujhe {location} ka mausam nahi mil paya."
+            return f"Sorry boss, mujhe {location} ka exact weather data nahi mil pa raha."
             
         temp = response['main']['temp']
         desc = response['weather'][0]['description']
-        return f"Live Data: {location} ka temperature {temp}°C hai aur mausam '{desc}' hai."
+        return f"Live Update: {location} mein abhi temp {temp}°C hai aur mausam '{desc}' jaisa hai."
     except Exception as e:
         logger.error(f"Weather API Error: {e}")
-        return "Weather API me kuch issue aaya hai."
+        return "Weather API mein thoda glitch aaya hai boss."
 
 # Tool Descriptions for Groq
 saarthi_tools = [
@@ -132,7 +133,7 @@ saarthi_tools = [
             }
         }
     },
-    # 🚀 NAYA TOOL: COMMUNICATION HUB (Call & WhatsApp)
+    # 🚀 THE COMMUNICATION HUB TOOL (Call & WhatsApp)
     {
         "type": "function",
         "function": {
@@ -212,8 +213,9 @@ async def chat_with_saarthi(request: ChatRequest):
                 if func_name == "navigate_to":
                     destination = func_args.get("destination")
                     logger.info(f"🗺️ Sending Maps Signal for: {destination}")
+                    # Note: Dialogue Android app handle karegi, hum yahan se logic bhejenge.
                     return ChatResponse(
-                        reply=f"Chaliye boss, main Google Maps par {destination} ka rasta laga raha hoon.",
+                        reply="Processing request, boss.",
                         action="OPEN_MAPS",
                         action_data1=destination
                     )
@@ -224,7 +226,7 @@ async def chat_with_saarthi(request: ChatRequest):
                     val = func_args.get("info_value")
                     logger.info(f"🧠 Sending Memory Signal: {key} -> {val}")
                     return ChatResponse(
-                        reply=f"Done boss, maine dhyan mein rakh liya hai ki {key} {val}.",
+                        reply="Processing request, boss.",
                         action="SAVE_MEMORY",
                         action_data1=key,
                         action_data2=val
@@ -236,22 +238,8 @@ async def chat_with_saarthi(request: ChatRequest):
                     app_pkg = func_args.get("app_package", "")
                     
                     logger.info(f"📱 Device Control Signal: {action_type} -> {app_pkg}")
-                    
-                    if action_type == "flashlight_on":
-                        reply_msg = "Theek hai boss, light on kar di hai."
-                    elif action_type == "flashlight_off":
-                        reply_msg = "Theek hai boss, light band kar di."
-                    elif action_type == "open_app":
-                        reply_msg = "Lijiye boss, app khol raha hoon."
-                    elif action_type in ["media_play", "media_pause", "media_stop"]:
-                        reply_msg = "Theek hai boss."
-                    elif action_type == "close_app":
-                        reply_msg = "App hata di hai boss."
-                    else:
-                        reply_msg = "Kaam ho gaya boss."
-
                     return ChatResponse(
-                        reply=reply_msg,
+                        reply="Processing request, boss.",
                         action="CONTROL_DEVICE",
                         action_data1=action_type,
                         action_data2=app_pkg
@@ -265,7 +253,7 @@ async def chat_with_saarthi(request: ChatRequest):
                     
                     logger.info(f"📞 Comm Signal: {method} to {name} | Msg: {msg}")
                     return ChatResponse(
-                        reply="Process kar raha hoon boss.", # Note: UI handles final 'Kam ho gaya' audio.
+                        reply="Processing request, boss.", 
                         action="COMMUNICATE", 
                         action_data1=method, 
                         action_data2=name,
