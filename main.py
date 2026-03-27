@@ -12,11 +12,12 @@ from dotenv import load_dotenv
 
 # Logs Setup
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(_name_)
 
 load_dotenv()
 
-app = FastAPI(title="Saarthi AI Core", version="4.0.0") # Version Updated for Device Control
+# Version Updated for Phase 2: Communication Hub
+app = FastAPI(title="Saarthi AI Core", version="5.0.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -35,13 +36,14 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     reply: str
-    action: str = "NONE"          # Signal for Android (SAVE_MEMORY, OPEN_MAPS, CONTROL_DEVICE, etc.)
-    action_data1: str = ""        # Extra data for action
-    action_data2: str = ""
+    action: str = "NONE"          # Signal for Android
+    action_data1: str = ""        # Extra data 1 (Method: call/whatsapp)
+    action_data2: str = ""        # Extra data 2 (Contact Name)
+    action_data3: str = ""        # 🚀 NAYA: WhatsApp message text ke liye
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (Audio + Weather + Maps + Device Control Ready)!"}
+    return {"status": "🟢 Saarthi AI is Online (Audio + Weather + Maps + Device Control + Comm Hub Ready)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
@@ -108,7 +110,6 @@ saarthi_tools = [
             }
         }
     },
-    # 🚀 NAYA TOOL: PHONE CONTROL & APP OPENER
     {
         "type": "function",
         "function": {
@@ -128,6 +129,33 @@ saarthi_tools = [
                     }
                 },
                 "required": ["action"]
+            }
+        }
+    },
+    # 🚀 NAYA TOOL: COMMUNICATION HUB (Call & WhatsApp)
+    {
+        "type": "function",
+        "function": {
+            "name": "communicate",
+            "description": "Make a phone call or send a WhatsApp message to a specific contact.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "method": {
+                        "type": "string", 
+                        "enum": ["call", "whatsapp"],
+                        "description": "Whether to make a phone call or send a WhatsApp message."
+                    },
+                    "contact_name": {
+                        "type": "string", 
+                        "description": "Name of the person to contact (e.g., Rahul, Mummy, Papa)."
+                    },
+                    "message_text": {
+                        "type": "string", 
+                        "description": "The content of the message to send. Leave completely empty if making a phone call."
+                    }
+                },
+                "required": ["method", "contact_name"]
             }
         }
     }
@@ -202,7 +230,7 @@ async def chat_with_saarthi(request: ChatRequest):
                         action_data2=val
                     )
                     
-                # 🚀 ACTION: CONTROL DEVICE (Flashlight / Apps / Media)
+                # ACTION: CONTROL DEVICE (Flashlight / Apps / Media)
                 elif func_name == "control_device":
                     action_type = func_args.get("action")
                     app_pkg = func_args.get("app_package", "")
@@ -227,6 +255,21 @@ async def chat_with_saarthi(request: ChatRequest):
                         action="CONTROL_DEVICE",
                         action_data1=action_type,
                         action_data2=app_pkg
+                    )
+                
+                # 🚀 ACTION: COMMUNICATE (Calls & WhatsApp)
+                elif func_name == "communicate":
+                    method = func_args.get("method")
+                    name = func_args.get("contact_name")
+                    msg = func_args.get("message_text", "")
+                    
+                    logger.info(f"📞 Comm Signal: {method} to {name} | Msg: {msg}")
+                    return ChatResponse(
+                        reply="Process kar raha hoon boss.", # Note: UI handles final 'Kam ho gaya' audio.
+                        action="COMMUNICATE", 
+                        action_data1=method, 
+                        action_data2=name,
+                        action_data3=msg
                     )
                     
                 # ACTION: FETCH WEATHER (Background process)
