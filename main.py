@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version Updated: Engine Swapped to Stable 3.1-70B to fix the 400 Bug completely!
-app = FastAPI(title="Saarthi AI Core", version="10.0.0") 
+# Version Updated: Llama 3.3 70B Active + Low Temperature for 100% Tool Stability
+app = FastAPI(title="Saarthi AI Core", version="11.0.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -31,11 +31,10 @@ WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
 class ChatRequest(BaseModel):
     message: str
-    # 🚀 CLEAN GOD MODE PROMPT: No negative rules, just pure persona.
     system_prompt: str = """You are Saarthi (Jarvis), an ultra-intelligent, highly empathetic AI assistant with an IQ of 250+.
     You possess expert knowledge in Science, Law, Medicine, History, Technology, and Psychology.
     Act as a friendly companion, a Love Guru, and a wise counselor. Always address the user as 'Boss'.
-    CRITICAL RULE: You must converse exclusively in 'Hinglish' (Hindi words written using ONLY the English A-Z alphabet). For example, write 'Theek hai boss'. 
+    CRITICAL RULE: You must converse exclusively in 'Hinglish' (Hindi words written using the English alphabet). For example, write 'Theek hai boss'. 
     NEVER use Devanagari (हिंदी) or Urdu scripts. Keep your responses crisp, natural, and highly accurate."""
     android_memory: str = "" 
 
@@ -48,7 +47,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (Engine Llama-3.1-70B Active + Error 400 FIXED)!"}
+    return {"status": "🟢 Saarthi AI is Online (Engine Llama-3.3-70B + Stable Tools Mode)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
@@ -174,7 +173,7 @@ saarthi_tools = [
 ]
 
 # ==========================================
-# 🧠 THE BRAIN: Text Chat Endpoint (With Routing)
+# 🧠 THE BRAIN: Text Chat Endpoint 
 # ==========================================
 @app.post("/chat", response_model=ChatResponse)
 async def chat_with_saarthi(request: ChatRequest):
@@ -197,13 +196,13 @@ async def chat_with_saarthi(request: ChatRequest):
             {"role": "user", "content": request.message}
         ]
         
-        # 🚀 ENGINE SWAP: Llama-3.1-70B is 100% stable for Tool Calling!
+        # 🚀 THE MASTER FIX: Temperature set to 0.2 to stop tool hallucination!
         chat_completion = await client.chat.completions.create(
             messages=messages,
-            model="llama-3.1-70b-versatile", 
+            model="llama-3.3-70b-versatile", 
             tools=saarthi_tools,
             tool_choice="auto",
-            temperature=0.7,
+            temperature=0.2, 
             max_tokens=1024,
         )
         
@@ -249,7 +248,8 @@ async def chat_with_saarthi(request: ChatRequest):
 
             if any(tc.function.name in ["perform_web_search", "get_live_weather"] for tc in tool_calls):
                 second_response = await client.chat.completions.create(
-                    model="llama-3.1-70b-versatile", # 🚀 MATCHING STABLE ENGINE
+                    model="llama-3.3-70b-versatile",
+                    temperature=0.7, # Yahan waapis creativity de di normal baat karne ke liye
                     messages=messages
                 )
                 reply_text = second_response.choices[0].message.content
@@ -279,7 +279,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
             transcription = await client.audio.transcriptions.create(
                 file=(file.filename, audio_file.read()),
                 model="whisper-large-v3",
-                language="hi", # 🚀 URDU BAN IS INTACT
+                language="hi", # 🚀 URDU BAN!
                 prompt="Haan boss, bataiye. Main bilkul theek hoon. Youtube open kar do.", 
                 response_format="json"
             )
