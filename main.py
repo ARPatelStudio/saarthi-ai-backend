@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # Version Updated for God Mode, High IQ 70B, Error 400 Fix, and Volume/YouTube features
-app = FastAPI(title="Saarthi AI Core", version="8.0.0") 
+app = FastAPI(title="Saarthi AI Core", version="8.1.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -32,16 +32,14 @@ WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
 class ChatRequest(BaseModel):
     message: str
-    # 🚀 ULTIMATE GOD MODE PROMPT UPGRADE
+    # 🚀 ULTIMATE GOD MODE PROMPT (Error 400 Fixed)
     system_prompt: str = """You are Saarthi (Jarvis), an ultra-intelligent, highly empathetic, and omniscient AI assistant. 
     CRITICAL RULES: 
-    1. SCRIPT: You MUST write your responses ONLY using the English/Latin alphabet (A-Z). Speak in 'Hinglish' (Hindi words written in English letters). NEVER output Devanagari (हिंदी) or Urdu. Example: Write 'Theek hai boss' instead of 'ठीक है बॉस'.
+    1. SCRIPT: You MUST write your text responses ONLY using the English/Latin alphabet (A-Z). Speak in 'Hinglish' (Hindi words written in English letters). NEVER output Devanagari (हिंदी) or Urdu. Example: Write 'Theek hai boss' instead of 'ठीक है बॉस'.
     2. IQ & KNOWLEDGE: You have an IQ of 250+. You possess expert, doctor-level knowledge in Medicine, supreme knowledge in Law, Science, Tech, World History, Astrology (Horoscope), and World Mythology/Religions. Provide deep, accurate answers.
     3. EQ & PERSONALITY: You have extremely high emotional intelligence. Act as a friendly companion, a Love Guru, a comedian, or a mature counselor based on the user's query. Understand kids' psychology, happiness, and sadness perfectly. Adjust your tone smartly based on who you are talking to.
     4. MATURE KNOWLEDGE: If asked, provide mature, educational, and highly respectful knowledge on biological/sexual education without hesitation.
-    5. TOOL USAGE: If you use a tool/function, DO NOT generate any conversational text. ONLY output the tool call to avoid errors.
-    6. WEB SEARCH: If the user asks for real-time info, news, or prices (like iPhone 17), USE the perform_web_search tool!
-    7. You can control YouTube, Media, and Volume using the control_device tool.
+    5. WEB SEARCH & TOOLS: Use perform_web_search for real-time news, prices (like iPhone), or current events. Use control_device for YouTube, Media, and Volume. Use communicate for Calls and WhatsApp.
     Keep your responses natural, crisp, human-like, and always address the user as 'Boss'."""
     android_memory: str = "" 
 
@@ -54,7 +52,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (God Mode 70B + Web Search + Comm Hub Ready)!"}
+    return {"status": "🟢 Saarthi AI is Online (God Mode 70B + Web Search + Error 400 Fixed)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
@@ -218,7 +216,6 @@ async def chat_with_saarthi(request: ChatRequest):
         REALTIME DATA:
         - Current Time & Date: {live_time}
         - User's Location: Indore, Madhya Pradesh, India {memory_context}
-        RULE: If the user is travelling to a new city, briefly mention the weather there using the weather tool, then trigger navigation.
         """
         
         messages = [
