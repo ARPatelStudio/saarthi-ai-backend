@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version Updated: Llama 3.3 70B Active + Low Temperature for 100% Tool Stability
-app = FastAPI(title="Saarthi AI Core", version="11.0.0") 
+# Version Updated: Split-Brain Architecture (8B for Tools + 70B for High IQ Talk)
+app = FastAPI(title="Saarthi AI Core", version="12.0.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -26,16 +26,15 @@ if not api_key:
     logger.error("🚨 GROQ_API_KEY is missing from environment variables!")
 
 client = AsyncGroq(api_key=api_key)
-
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
 class ChatRequest(BaseModel):
     message: str
-    system_prompt: str = """You are Saarthi (Jarvis), an ultra-intelligent, highly empathetic AI assistant with an IQ of 250+.
-    You possess expert knowledge in Science, Law, Medicine, History, Technology, and Psychology.
-    Act as a friendly companion, a Love Guru, and a wise counselor. Always address the user as 'Boss'.
-    CRITICAL RULE: You must converse exclusively in 'Hinglish' (Hindi words written using the English alphabet). For example, write 'Theek hai boss'. 
-    NEVER use Devanagari (हिंदी) or Urdu scripts. Keep your responses crisp, natural, and highly accurate."""
+    system_prompt: str = """You are Saarthi (Jarvis), an ultra-intelligent, highly empathetic AI assistant.
+    CRITICAL RULES:
+    1. LANGUAGE: Converse naturally in 'Hinglish' (Hindi words written with the English alphabet). Example: 'Theek hai boss'. NEVER use Devanagari (हिंदी) or Urdu scripts.
+    2. IQ & EQ: You have an IQ of 250+ and supreme knowledge in Science, Law, Medicine, History, and Psychology. Act as a friendly companion, a wise counselor, and always address the user as 'Boss'.
+    3. TONE: Keep your responses highly accurate, natural, crisp, short, and human-like."""
     android_memory: str = "" 
 
 class ChatResponse(BaseModel):
@@ -47,7 +46,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (Engine Llama-3.3-70B + Stable Tools Mode)!"}
+    return {"status": "🟢 Saarthi AI is Online (Split-Brain Architecture 8B+70B Active)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
@@ -86,7 +85,7 @@ saarthi_tools = [
         "type": "function",
         "function": {
             "name": "perform_web_search",
-            "description": "Use this tool immediately if the user asks for real-time information, latest news, current prices (e.g., iPhone 15 price), or anything that requires internet access.",
+            "description": "Search the internet for real-time information, latest news, current prices (e.g., iPhone 15 price), or any queries needing internet.",
             "parameters": {
                 "type": "object",
                 "properties": {"query": {"type": "string", "description": "The exact search query."}},
@@ -99,56 +98,35 @@ saarthi_tools = [
         "function": {
             "name": "get_live_weather",
             "description": "Fetch real-time weather and temperature for a city.",
-            "parameters": {
-                "type": "object",
-                "properties": {"location": {"type": "string", "description": "City name, e.g., Indore"}},
-                "required": ["location"]
-            }
+            "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}
         }
     },
     {
         "type": "function",
         "function": {
             "name": "navigate_to",
-            "description": "Trigger this when the user wants to go somewhere, needs directions, or asks to open maps.",
-            "parameters": {
-                "type": "object",
-                "properties": {"destination": {"type": "string", "description": "The exact place or city."}},
-                "required": ["destination"]
-            }
+            "description": "Trigger this to open maps or navigate.",
+            "parameters": {"type": "object", "properties": {"destination": {"type": "string"}}, "required": ["destination"]}
         }
     },
     {
         "type": "function",
         "function": {
             "name": "save_to_memory",
-            "description": "Use this to REMEMBER personal information the user tells you.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "info_key": {"type": "string"},
-                    "info_value": {"type": "string"}
-                },
-                "required": ["info_key", "info_value"]
-            }
+            "description": "Remember personal information.",
+            "parameters": {"type": "object", "properties": {"info_key": {"type": "string"}, "info_value": {"type": "string"}}, "required": ["info_key", "info_value"]}
         }
     },
     {
         "type": "function",
         "function": {
             "name": "control_device",
-            "description": "Control the Android phone's hardware, media, volume, or search youtube.",
+            "description": "Control Android hardware, media, volume, or search youtube.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "action": {
-                        "type": "string", 
-                        "enum": ["open_app", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "close_app", "volume_up", "volume_down", "youtube_search"],
-                    },
-                    "app_package": {
-                        "type": "string", 
-                        "description": "If opening an app, guess the exact Android package name. If action is 'youtube_search', put the song/video query here."
-                    }
+                    "action": {"type": "string", "enum": ["open_app", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "close_app", "volume_up", "volume_down", "youtube_search"]},
+                    "app_package": {"type": "string"}
                 },
                 "required": ["action"]
             }
@@ -158,13 +136,13 @@ saarthi_tools = [
         "type": "function",
         "function": {
             "name": "communicate",
-            "description": "Make a phone call or send a WhatsApp message to a specific contact.",
+            "description": "Make calls or send WhatsApp.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "method": {"type": "string", "enum": ["call", "whatsapp"]},
                     "contact_name": {"type": "string"},
-                    "message_text": {"type": "string", "description": "Leave completely empty if making a phone call."}
+                    "message_text": {"type": "string"}
                 },
                 "required": ["method", "contact_name"]
             }
@@ -173,7 +151,7 @@ saarthi_tools = [
 ]
 
 # ==========================================
-# 🧠 THE BRAIN: Text Chat Endpoint 
+# 🧠 THE BRAIN: Split-Brain Architecture Endpoint
 # ==========================================
 @app.post("/chat", response_model=ChatResponse)
 async def chat_with_saarthi(request: ChatRequest):
@@ -196,17 +174,17 @@ async def chat_with_saarthi(request: ChatRequest):
             {"role": "user", "content": request.message}
         ]
         
-        # 🚀 THE MASTER FIX: Temperature set to 0.2 to stop tool hallucination!
-        chat_completion = await client.chat.completions.create(
+        # 🧠 BRAIN 1: THE LOGIC ROUTER (8B Model - 100% Stable for Tools)
+        chat_completion_router = await client.chat.completions.create(
             messages=messages,
-            model="llama-3.3-70b-versatile", 
+            model="llama-3.1-8b-instant", # Yeh model tools mein galti nahi karta
             tools=saarthi_tools,
             tool_choice="auto",
-            temperature=0.2, 
+            temperature=0.1, 
             max_tokens=1024,
         )
         
-        response_message = chat_completion.choices[0].message
+        response_message = chat_completion_router.choices[0].message
         tool_calls = response_message.tool_calls
 
         if tool_calls:
@@ -216,55 +194,50 @@ async def chat_with_saarthi(request: ChatRequest):
                 func_name = tool_call.function.name
                 func_args = json.loads(tool_call.function.arguments)
                 
+                # EXECUTE TOOLS
                 if func_name == "perform_web_search":
                     query = func_args.get("query")
                     web_data = perform_web_search(query)
                     messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": web_data})
 
-                elif func_name == "navigate_to":
-                    destination = func_args.get("destination")
-                    return ChatResponse(reply="Processing request, boss.", action="OPEN_MAPS", action_data1=destination)
-                
-                elif func_name == "save_to_memory":
-                    key = func_args.get("info_key")
-                    val = func_args.get("info_value")
-                    return ChatResponse(reply="Processing request, boss.", action="SAVE_MEMORY", action_data1=key, action_data2=val)
-                    
-                elif func_name == "control_device":
-                    action_type = func_args.get("action")
-                    app_pkg = func_args.get("app_package", "")
-                    return ChatResponse(reply="Processing request, boss.", action="CONTROL_DEVICE", action_data1=action_type, action_data2=app_pkg)
-                
-                elif func_name == "communicate":
-                    method = func_args.get("method")
-                    name = func_args.get("contact_name")
-                    msg = func_args.get("message_text", "")
-                    return ChatResponse(reply="Processing request, boss.", action="COMMUNICATE", action_data1=method, action_data2=name, action_data3=msg)
-                    
                 elif func_name == "get_live_weather":
                     location = func_args.get("location")
                     weather_data = get_live_weather(location)
                     messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": weather_data})
 
-            if any(tc.function.name in ["perform_web_search", "get_live_weather"] for tc in tool_calls):
-                second_response = await client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    temperature=0.7, # Yahan waapis creativity de di normal baat karne ke liye
-                    messages=messages
-                )
-                reply_text = second_response.choices[0].message.content
-                return ChatResponse(reply=reply_text)
+                elif func_name == "navigate_to":
+                    return ChatResponse(reply="Processing request, boss.", action="OPEN_MAPS", action_data1=func_args.get("destination"))
+                elif func_name == "save_to_memory":
+                    return ChatResponse(reply="Processing request, boss.", action="SAVE_MEMORY", action_data1=func_args.get("info_key"), action_data2=func_args.get("info_value"))
+                elif func_name == "control_device":
+                    return ChatResponse(reply="Processing request, boss.", action="CONTROL_DEVICE", action_data1=func_args.get("action"), action_data2=func_args.get("app_package", ""))
+                elif func_name == "communicate":
+                    return ChatResponse(reply="Processing request, boss.", action="COMMUNICATE", action_data1=func_args.get("method"), action_data2=func_args.get("contact_name"), action_data3=func_args.get("message_text", ""))
 
-        reply_text = response_message.content
-        logger.info("✅ Success from Groq Chat")
-        return ChatResponse(reply=reply_text)
+            # 🧠 BRAIN 2: THE CREATIVE GENIUS (70B Model - For Final Response)
+            if any(tc.function.name in ["perform_web_search", "get_live_weather"] for tc in tool_calls):
+                final_response = await client.chat.completions.create(
+                    model="llama-3.3-70b-versatile", # High IQ Model se baat karega (Bina tools ke)
+                    messages=messages,
+                    temperature=0.7 
+                )
+                return ChatResponse(reply=final_response.choices[0].message.content)
+
+        # 🧠 BRAIN 2: THE CREATIVE GENIUS (Agar koi tool nahi chahiye, direct high IQ baat)
+        final_response = await client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=messages,
+            temperature=0.7
+        )
+        logger.info("✅ Success from Groq Chat (70B)")
+        return ChatResponse(reply=final_response.choices[0].message.content)
 
     except Exception as e:
         logger.error(f"💥 CRITICAL CHAT ERROR: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Saarthi Brain Error: {str(e)}")
 
 # ==========================================
-# 👂 THE EARS: Audio Transcription Endpoint
+# 👂 THE EARS: Audio Transcription Endpoint 
 # ==========================================
 @app.post("/api/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
@@ -279,7 +252,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
             transcription = await client.audio.transcriptions.create(
                 file=(file.filename, audio_file.read()),
                 model="whisper-large-v3",
-                language="hi", # 🚀 URDU BAN!
+                language="hi", # 🚀 Perfect Hindi/English Mix (Urdu Banned)
                 prompt="Haan boss, bataiye. Main bilkul theek hoon. Youtube open kar do.", 
                 response_format="json"
             )
