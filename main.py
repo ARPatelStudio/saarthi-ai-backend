@@ -13,12 +13,12 @@ from duckduckgo_search import DDGS # 🚀 NAYA: Web Search Engine
 
 # Logs Setup
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(_name_)
 
 load_dotenv()
 
-# Version Updated for Roman Script Enforcement + Web Search
-app = FastAPI(title="Saarthi AI Core", version="6.0.0") 
+# Version Updated for High IQ 70B, Error 400 Fix, and Volume/YouTube features
+app = FastAPI(title="Saarthi AI Core", version="7.0.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -32,13 +32,15 @@ WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
 class ChatRequest(BaseModel):
     message: str
-    # 🚀 SYSTEM PROMPT UPGRADE: Strict instruction to only use A-Z letters AND use Web Search
-    system_prompt: str = """You are Saarthi (Jarvis), a smart AI assistant. 
-    CRITICAL RULE: You MUST write your responses ONLY using the English/Latin alphabet (A-Z). 
-    Speak in 'Hinglish' (Hindi words written in English letters). 
-    NEVER output Devanagari (हिंदी) or Urdu scripts. 
-    Example: Write 'Theek hai boss' instead of 'ठीक है बॉस'. Keep it short and crisp.
-    If the user asks for real-time info, news, or prices (like iPhone 17), USE the perform_web_search tool!"""
+    # 🚀 SYSTEM PROMPT UPGRADE: Strict instruction for A-Z letters, Web Search, and avoiding Error 400
+    system_prompt: str = """You are Saarthi (Jarvis), a highly intelligent AI assistant. 
+    CRITICAL RULES: 
+    1. You MUST write your responses ONLY using the English/Latin alphabet (A-Z). Speak in 'Hinglish' (Hindi words written in English letters). 
+    2. NEVER output Devanagari (हिंदी) or Urdu scripts. 
+    3. If the user asks for real-time info, news, or prices (like iPhone 17), USE the perform_web_search tool!
+    4. If you use a tool/function, DO NOT generate any conversational text. ONLY output the tool call to avoid errors.
+    5. You can control YouTube, Media, and Volume using the control_device tool.
+    Example: Write 'Theek hai boss' instead of 'ठीक है बॉस'. Keep it short and crisp."""
     android_memory: str = "" 
 
 class ChatResponse(BaseModel):
@@ -50,7 +52,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (Roman Script Enforced + Web Search + Comm Hub Ready)!"}
+    return {"status": "🟢 Saarthi AI is Online (High IQ 70B + Web Search + Comm Hub Ready)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
@@ -152,14 +154,15 @@ saarthi_tools = [
             "parameters": {
                 "type": "object",
                 "properties": {
+                    # 🚀 UPGRADED: Added volume_up, volume_down, and youtube_search capabilities
                     "action": {
                         "type": "string", 
-                        "enum": ["open_app", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "close_app"],
-                        "description": "What to do: open/close an app, turn flashlight on/off, or control media playback."
+                        "enum": ["open_app", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "close_app", "volume_up", "volume_down", "youtube_search"],
+                        "description": "What to do: control media, change volume, turn flashlight on/off, close app, open app, or search specific video on YouTube."
                     },
                     "app_package": {
                         "type": "string", 
-                        "description": "If opening an app, guess the exact Android package name (e.g., com.whatsapp, com.google.android.youtube, com.instagram.android). Leave empty for others."
+                        "description": "If opening an app, guess the exact Android package name (e.g., com.whatsapp). If action is 'youtube_search', put the song/video query here."
                     }
                 },
                 "required": ["action"]
@@ -221,10 +224,10 @@ async def chat_with_saarthi(request: ChatRequest):
             {"role": "user", "content": request.message}
         ]
         
-        # 2. Ask Groq if it needs to use any tools
+        # 🚀 HIGH IQ MODEL UPGRADE: Using llama-3.3-70b-versatile for superior logic
         chat_completion = await client.chat.completions.create(
             messages=messages,
-            model="llama-3.1-8b-instant", 
+            model="llama-3.3-70b-versatile", 
             tools=saarthi_tools,
             tool_choice="auto",
             temperature=0.7,
@@ -270,7 +273,7 @@ async def chat_with_saarthi(request: ChatRequest):
                         action_data2=val
                     )
                     
-                # ACTION: CONTROL DEVICE (Flashlight / Apps / Media)
+                # ACTION: CONTROL DEVICE (Flashlight / Apps / Media / YouTube / Volume)
                 elif func_name == "control_device":
                     action_type = func_args.get("action")
                     app_pkg = func_args.get("app_package", "")
@@ -312,7 +315,7 @@ async def chat_with_saarthi(request: ChatRequest):
             # Agar Web Search ya Weather hua hai, toh LLM se final answer maango
             if any(tc.function.name in ["perform_web_search", "get_live_weather"] for tc in tool_calls):
                 second_response = await client.chat.completions.create(
-                    model="llama-3.1-8b-instant",
+                    model="llama-3.3-70b-versatile", # HIGH IQ
                     messages=messages
                 )
                 reply_text = second_response.choices[0].message.content
