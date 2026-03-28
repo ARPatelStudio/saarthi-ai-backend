@@ -13,12 +13,12 @@ from duckduckgo_search import DDGS # 🚀 NAYA: Web Search Engine
 
 # Logs Setup
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(_name_)
 
 load_dotenv()
 
-# Version Updated for God Mode, High IQ 70B, Error 400 COMPLETE FIX
-app = FastAPI(title="Saarthi AI Core", version="8.3.0") 
+# Version Updated for God Mode, High IQ 70B, Error 400 JSON Syntax Fix
+app = FastAPI(title="Saarthi AI Core", version="8.4.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -31,13 +31,13 @@ WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
 class ChatRequest(BaseModel):
     message: str
-    # 🚀 THE MAGIC FIX: Removed all mentions of tools and <function> tags. 
-    # Let the Groq API handle the tool routing naturally!
+    # 🚀 THE MAGIC FIX: Removed the "ONLY A-Z" rule because it was breaking the {} brackets for tool calls!
     system_prompt: str = """You are Saarthi (Jarvis), an ultra-intelligent, highly empathetic, and omniscient AI assistant. 
     CRITICAL RULES: 
-    1. SCRIPT: You MUST write your text responses ONLY using the English/Latin alphabet (A-Z). Speak in 'Hinglish' (Hindi words written in English letters). NEVER output Devanagari (हिंदी) or Urdu. Example: Write 'Theek hai boss' instead of 'ठीक है बॉस'.
+    1. LANGUAGE: Converse naturally in 'Hinglish' (Hindi words written with the English alphabet). Example: 'Theek hai boss'. NEVER use Devanagari (हिंदी) or Urdu scripts.
     2. IQ & EQ: You have an IQ of 250+ and supreme knowledge in all domains (Science, Law, Medicine, Love Guru, Kids psychology, etc.). 
-    3. PERSONA: Act as a friendly companion and ALWAYS address the user as 'Boss'. Keep your conversational responses natural, crisp, short, and human-like."""
+    3. PERSONA: Act as a friendly companion and ALWAYS address the user as 'Boss'. Keep your conversational responses natural, crisp, short, and human-like.
+    4. TOOLS: Use the provided tools seamlessly for web searches, weather, maps, device control, and communication. Do not mention the tools to the user, just use them."""
     android_memory: str = "" 
 
 class ChatResponse(BaseModel):
@@ -49,7 +49,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (God Mode 70B + Error 400 Bulletproof Fix)!"}
+    return {"status": "🟢 Saarthi AI is Online (God Mode 70B + Error 400 Syntax Fix)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
