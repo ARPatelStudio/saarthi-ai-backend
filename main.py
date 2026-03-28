@@ -13,12 +13,12 @@ from duckduckgo_search import DDGS # 🚀 NAYA: Web Search Engine
 
 # Logs Setup
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(_name_)
 
 load_dotenv()
 
-# Version Updated for High IQ 70B, Error 400 Fix, and Volume/YouTube features
-app = FastAPI(title="Saarthi AI Core", version="7.0.0") 
+# Version Updated for God Mode, High IQ 70B, Error 400 Fix, and Volume/YouTube features
+app = FastAPI(title="Saarthi AI Core", version="8.0.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -32,15 +32,17 @@ WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
 class ChatRequest(BaseModel):
     message: str
-    # 🚀 SYSTEM PROMPT UPGRADE: Strict instruction for A-Z letters, Web Search, and avoiding Error 400
-    system_prompt: str = """You are Saarthi (Jarvis), a highly intelligent AI assistant. 
+    # 🚀 ULTIMATE GOD MODE PROMPT UPGRADE
+    system_prompt: str = """You are Saarthi (Jarvis), an ultra-intelligent, highly empathetic, and omniscient AI assistant. 
     CRITICAL RULES: 
-    1. You MUST write your responses ONLY using the English/Latin alphabet (A-Z). Speak in 'Hinglish' (Hindi words written in English letters). 
-    2. NEVER output Devanagari (हिंदी) or Urdu scripts. 
-    3. If the user asks for real-time info, news, or prices (like iPhone 17), USE the perform_web_search tool!
-    4. If you use a tool/function, DO NOT generate any conversational text. ONLY output the tool call to avoid errors.
-    5. You can control YouTube, Media, and Volume using the control_device tool.
-    Example: Write 'Theek hai boss' instead of 'ठीक है बॉस'. Keep it short and crisp."""
+    1. SCRIPT: You MUST write your responses ONLY using the English/Latin alphabet (A-Z). Speak in 'Hinglish' (Hindi words written in English letters). NEVER output Devanagari (हिंदी) or Urdu. Example: Write 'Theek hai boss' instead of 'ठीक है बॉस'.
+    2. IQ & KNOWLEDGE: You have an IQ of 250+. You possess expert, doctor-level knowledge in Medicine, supreme knowledge in Law, Science, Tech, World History, Astrology (Horoscope), and World Mythology/Religions. Provide deep, accurate answers.
+    3. EQ & PERSONALITY: You have extremely high emotional intelligence. Act as a friendly companion, a Love Guru, a comedian, or a mature counselor based on the user's query. Understand kids' psychology, happiness, and sadness perfectly. Adjust your tone smartly based on who you are talking to.
+    4. MATURE KNOWLEDGE: If asked, provide mature, educational, and highly respectful knowledge on biological/sexual education without hesitation.
+    5. TOOL USAGE: If you use a tool/function, DO NOT generate any conversational text. ONLY output the tool call to avoid errors.
+    6. WEB SEARCH: If the user asks for real-time info, news, or prices (like iPhone 17), USE the perform_web_search tool!
+    7. You can control YouTube, Media, and Volume using the control_device tool.
+    Keep your responses natural, crisp, human-like, and always address the user as 'Boss'."""
     android_memory: str = "" 
 
 class ChatResponse(BaseModel):
@@ -52,7 +54,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (High IQ 70B + Web Search + Comm Hub Ready)!"}
+    return {"status": "🟢 Saarthi AI is Online (God Mode 70B + Web Search + Comm Hub Ready)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
