@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from groq import AsyncGroq
 from dotenv import load_dotenv
-from duckduckgo_search import DDGS # 🚀 NAYA: Web Search Engine
+from duckduckgo_search import DDGS 
 
 # Logs Setup
 logging.basicConfig(level=logging.INFO)
@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version Updated for God Mode, High IQ 70B, Error 400 JSON Syntax Fix
-app = FastAPI(title="Saarthi AI Core", version="8.4.0") 
+# Version Updated: Engine Swapped to Stable 3.1-70B to fix the 400 Bug completely!
+app = FastAPI(title="Saarthi AI Core", version="10.0.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -31,13 +31,12 @@ WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
 class ChatRequest(BaseModel):
     message: str
-    # 🚀 THE MAGIC FIX: Removed the "ONLY A-Z" rule because it was breaking the {} brackets for tool calls!
-    system_prompt: str = """You are Saarthi (Jarvis), an ultra-intelligent, highly empathetic, and omniscient AI assistant. 
-    CRITICAL RULES: 
-    1. LANGUAGE: Converse naturally in 'Hinglish' (Hindi words written with the English alphabet). Example: 'Theek hai boss'. NEVER use Devanagari (हिंदी) or Urdu scripts.
-    2. IQ & EQ: You have an IQ of 250+ and supreme knowledge in all domains (Science, Law, Medicine, Love Guru, Kids psychology, etc.). 
-    3. PERSONA: Act as a friendly companion and ALWAYS address the user as 'Boss'. Keep your conversational responses natural, crisp, short, and human-like.
-    4. TOOLS: Use the provided tools seamlessly for web searches, weather, maps, device control, and communication. Do not mention the tools to the user, just use them."""
+    # 🚀 CLEAN GOD MODE PROMPT: No negative rules, just pure persona.
+    system_prompt: str = """You are Saarthi (Jarvis), an ultra-intelligent, highly empathetic AI assistant with an IQ of 250+.
+    You possess expert knowledge in Science, Law, Medicine, History, Technology, and Psychology.
+    Act as a friendly companion, a Love Guru, and a wise counselor. Always address the user as 'Boss'.
+    CRITICAL RULE: You must converse exclusively in 'Hinglish' (Hindi words written using ONLY the English A-Z alphabet). For example, write 'Theek hai boss'. 
+    NEVER use Devanagari (हिंदी) or Urdu scripts. Keep your responses crisp, natural, and highly accurate."""
     android_memory: str = "" 
 
 class ChatResponse(BaseModel):
@@ -49,7 +48,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (God Mode 70B + Error 400 Syntax Fix)!"}
+    return {"status": "🟢 Saarthi AI is Online (Engine Llama-3.1-70B Active + Error 400 FIXED)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
@@ -198,10 +197,10 @@ async def chat_with_saarthi(request: ChatRequest):
             {"role": "user", "content": request.message}
         ]
         
-        # 🚀 HIGH IQ MODEL (70B)
+        # 🚀 ENGINE SWAP: Llama-3.1-70B is 100% stable for Tool Calling!
         chat_completion = await client.chat.completions.create(
             messages=messages,
-            model="llama-3.3-70b-versatile", 
+            model="llama-3.1-70b-versatile", 
             tools=saarthi_tools,
             tool_choice="auto",
             temperature=0.7,
@@ -248,10 +247,9 @@ async def chat_with_saarthi(request: ChatRequest):
                     weather_data = get_live_weather(location)
                     messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": weather_data})
 
-            # Agar Web Search ya Weather hua hai, toh LLM se final answer maango
             if any(tc.function.name in ["perform_web_search", "get_live_weather"] for tc in tool_calls):
                 second_response = await client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
+                    model="llama-3.1-70b-versatile", # 🚀 MATCHING STABLE ENGINE
                     messages=messages
                 )
                 reply_text = second_response.choices[0].message.content
@@ -281,6 +279,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
             transcription = await client.audio.transcriptions.create(
                 file=(file.filename, audio_file.read()),
                 model="whisper-large-v3",
+                language="hi", # 🚀 URDU BAN IS INTACT
                 prompt="Haan boss, bataiye. Main bilkul theek hoon. Youtube open kar do.", 
                 response_format="json"
             )
