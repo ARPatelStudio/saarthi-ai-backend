@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version Updated: Volume Band/Chalu Slang added to Router + Voice Focus Maintained
-app = FastAPI(title="Saarthi AI Core", version="15.0.0") 
+# Version Updated: God Mode + Router Fix + Mute/Unmute + YouTube Movie Fix
+app = FastAPI(title="Saarthi AI Core", version="16.0.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -31,6 +31,7 @@ WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
 class ChatRequest(BaseModel):
     message: str
+    # 🚀 CLEAN GOD MODE PROMPT
     system_prompt: str = """You are Saarthi (Jarvis), an ultra-intelligent, highly empathetic AI assistant.
     CRITICAL RULES:
     1. LANGUAGE: Converse naturally in 'Hinglish' (Hindi words written with the English alphabet). Example: 'Theek hai boss'. NEVER use Devanagari (हिंदी) or Urdu scripts.
@@ -48,7 +49,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (God Mode + Voice Focus + Volume Band/Chalu Mapped)!"}
+    return {"status": "🟢 Saarthi AI is Online (YouTube Movie/Song Search Mapped & Stable)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
@@ -151,7 +152,7 @@ saarthi_tools = [
                     },
                     "app_package": {
                         "type": "string", 
-                        "description": "App package name, OR the search query if action is youtube_search."
+                        "description": "App package name, OR the search query (movie/song name) if action is youtube_search."
                     }
                 },
                 "required": ["action"]
@@ -188,11 +189,11 @@ async def chat_with_saarthi(request: ChatRequest):
         live_time = datetime.datetime.now(ist_timezone).strftime('%A, %d %B %Y, %I:%M %p')
         memory_context = f"\n[User's Saved Memory: {request.android_memory}]" if request.android_memory else ""
         
-        # 🚀 FIX: Sikha diya ki "volume band" = mute aur "volume chalu" = unmute
-        router_system_prompt = f"""You are a backend tool-routing AI. Your ONLY job is to select the correct tool based on the user's request.
-        CRITICAL RULES:
-        1. NEVER output text like '<function=...>' or XML tags. Use native JSON tool calling silently.
-        2. HINGLISH MAPPING: If user says "volume band kar do" use action "volume_mute". If user says "volume chalu kar do" use action "volume_unmute".
+        # 🚀 FIX: The Ultimate Clean Router Prompt for YouTube accuracy
+        router_system_prompt = f"""You are a silent tool-routing AI. You must ONLY output the native tool call format.
+        RULES:
+        1. If the user asks to play a song, movie, video, or trailer on YouTube, ALWAYS select the 'control_device' tool with action="youtube_search" and put the query in the 'app_package' field. DO NOT use 'open_app'.
+        2. "volume band" = 'volume_mute'. "volume chalu" = 'volume_unmute'.
         3. Realtime Data - Time: {live_time}, Location: Indore, India {memory_context}"""
         
         router_messages = [
@@ -200,13 +201,13 @@ async def chat_with_saarthi(request: ChatRequest):
             {"role": "user", "content": request.message}
         ]
         
-        # 🧠 BRAIN 1: THE LOGIC ROUTER (8B Model - 100% Stable with 0.0 temp)
+        # 🧠 BRAIN 1: THE LOGIC ROUTER (8B Model - 100% Stable)
         chat_completion_router = await client.chat.completions.create(
             messages=router_messages,
             model="llama-3.1-8b-instant", 
             tools=saarthi_tools,
             tool_choice="auto",
-            temperature=0.0, # Complete strictness
+            temperature=0.0, 
             max_tokens=1024,
         )
         
@@ -287,7 +288,6 @@ async def transcribe_audio(file: UploadFile = File(...)):
                 file=(file.filename, audio_file.read()),
                 model="whisper-large-v3",
                 language="hi",
-                # 🚀 VOICE FOCUS Mapped properly!
                 prompt="Haan boss, bataiye. Main bilkul theek hoon. Ignore background noise and focus only on the main speaker's command.", 
                 response_format="json"
             )
