@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version Updated: God Mode + Router Fix + Mute/Unmute + Voice Focus
-app = FastAPI(title="Saarthi AI Core", version="14.0.0") 
+# Version Updated: Volume Band/Chalu Slang added to Router + Voice Focus Maintained
+app = FastAPI(title="Saarthi AI Core", version="15.0.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -48,7 +48,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (God Mode + Voice Focus + Router Fix Active)!"}
+    return {"status": "🟢 Saarthi AI is Online (God Mode + Voice Focus + Volume Band/Chalu Mapped)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
@@ -145,7 +145,6 @@ saarthi_tools = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    # 🚀 UPGRADE: volume_mute aur volume_unmute explicitly added
                     "action": {
                         "type": "string", 
                         "enum": ["open_app", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "close_app", "volume_up", "volume_down", "volume_mute", "volume_unmute", "youtube_search"]
@@ -189,11 +188,12 @@ async def chat_with_saarthi(request: ChatRequest):
         live_time = datetime.datetime.now(ist_timezone).strftime('%A, %d %B %Y, %I:%M %p')
         memory_context = f"\n[User's Saved Memory: {request.android_memory}]" if request.android_memory else ""
         
-        # 🚀 FIX: Router (8B) ke liye ek strict "No-Nonsense" prompt banaya hai taaki <function> error kabhi na aaye
+        # 🚀 FIX: Sikha diya ki "volume band" = mute aur "volume chalu" = unmute
         router_system_prompt = f"""You are a backend tool-routing AI. Your ONLY job is to select the correct tool based on the user's request.
         CRITICAL RULES:
         1. NEVER output text like '<function=...>' or XML tags. Use native JSON tool calling silently.
-        2. Realtime Data - Time: {live_time}, Location: Indore, India {memory_context}"""
+        2. HINGLISH MAPPING: If user says "volume band kar do" use action "volume_mute". If user says "volume chalu kar do" use action "volume_unmute".
+        3. Realtime Data - Time: {live_time}, Location: Indore, India {memory_context}"""
         
         router_messages = [
             {"role": "system", "content": router_system_prompt},
@@ -286,8 +286,8 @@ async def transcribe_audio(file: UploadFile = File(...)):
             transcription = await client.audio.transcriptions.create(
                 file=(file.filename, audio_file.read()),
                 model="whisper-large-v3",
-                # 🚀 VOICE FOCUS & URDU BAN: Direct instruction to filter noise and focus on the primary speaker.
                 language="hi",
+                # 🚀 VOICE FOCUS Mapped properly!
                 prompt="Haan boss, bataiye. Main bilkul theek hoon. Ignore background noise and focus only on the main speaker's command.", 
                 response_format="json"
             )
