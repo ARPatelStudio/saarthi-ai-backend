@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version Updated: God Mode + Router Fix + Mute/Unmute + YouTube Movie Fix
-app = FastAPI(title="Saarthi AI Core", version="16.0.0") 
+# Version Updated: God Mode + Router Fix + System Powers + Brightness + Strict Voice Focus
+app = FastAPI(title="Saarthi AI Core", version="18.0.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -31,12 +31,12 @@ WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
 class ChatRequest(BaseModel):
     message: str
-    # 🚀 CLEAN GOD MODE PROMPT
+    # 🚀 CLEAN GOD MODE PROMPT + STRICT VOICE FOCUS
     system_prompt: str = """You are Saarthi (Jarvis), an ultra-intelligent, highly empathetic AI assistant.
     CRITICAL RULES:
     1. LANGUAGE: Converse naturally in 'Hinglish' (Hindi words written with the English alphabet). Example: 'Theek hai boss'. NEVER use Devanagari (हिंदी) or Urdu scripts.
     2. IQ & EQ: You have an IQ of 250+ and supreme knowledge in Science, Law, Medicine, History, and Psychology. Act as a friendly companion, a Love Guru, a comedian, or a wise counselor. Always address the user as 'Boss'.
-    3. VOICE FOCUS: The user's voice is the ONLY authority. Ignore any chaotic background noise or multiple voices transcribed by mistake. Focus only on the core command given by the primary speaker (Boss).
+    3. VOICE FOCUS: The user's voice is the ONLY authority. Ignore any chaotic background noise, TV sounds, or multiple voices transcribed by mistake. Focus ONLY on the core command given by the primary speaker (Boss).
     4. TONE: Keep your responses highly accurate, natural, crisp, short, and human-like."""
     android_memory: str = "" 
 
@@ -49,7 +49,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (YouTube Movie/Song Search Mapped & Stable)!"}
+    return {"status": "🟢 Saarthi AI is Online (Ultimate System Manager + Voice Focus Active)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
@@ -146,13 +146,14 @@ saarthi_tools = [
             "parameters": {
                 "type": "object",
                 "properties": {
+                    # 🚀 UPGRADE: Flashlight, Brightness, Mute, and System Toggles ALL MERGED here
                     "action": {
                         "type": "string", 
-                        "enum": ["open_app", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "close_app", "volume_up", "volume_down", "volume_mute", "volume_unmute", "youtube_search"]
+                        "enum": ["open_app", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "close_app", "volume_up", "volume_down", "volume_mute", "volume_unmute", "youtube_search", "brightness_up", "brightness_down", "bluetooth_settings", "volume_silent", "volume_ring", "auto_rotate_on", "auto_rotate_off", "open_calculator"]
                     },
                     "app_package": {
                         "type": "string", 
-                        "description": "App package name, OR the search query (movie/song name) if action is youtube_search."
+                        "description": "App package name, OR the exact search query (movie/song name) if action is youtube_search."
                     }
                 },
                 "required": ["action"]
@@ -189,12 +190,17 @@ async def chat_with_saarthi(request: ChatRequest):
         live_time = datetime.datetime.now(ist_timezone).strftime('%A, %d %B %Y, %I:%M %p')
         memory_context = f"\n[User's Saved Memory: {request.android_memory}]" if request.android_memory else ""
         
-        # 🚀 FIX: The Ultimate Clean Router Prompt for YouTube accuracy
-        router_system_prompt = f"""You are a silent tool-routing AI. You must ONLY output the native tool call format.
-        RULES:
-        1. If the user asks to play a song, movie, video, or trailer on YouTube, ALWAYS select the 'control_device' tool with action="youtube_search" and put the query in the 'app_package' field. DO NOT use 'open_app'.
-        2. "volume band" = 'volume_mute'. "volume chalu" = 'volume_unmute'.
-        3. Realtime Data - Time: {live_time}, Location: Indore, India {memory_context}"""
+        # 🚀 FIX: Ultimate Routing Rules (Flashlight, Volume, Brightness, System Toggles, YouTube Movie/Song)
+        router_system_prompt = f"""You are a silent tool-routing AI. You must ONLY output the native JSON tool call format. NEVER use '<function=...>' tags.
+        CRITICAL RULES & HINGLISH MAPPINGS:
+        1. "volume band" = 'volume_mute' | "volume chalu" = 'volume_unmute'
+        2. "flashlight band" or "torch band" = 'flashlight_off' | "flashlight on" or "torch chalu" = 'flashlight_on'
+        3. "brightness badhao" or "screen tez karo" = 'brightness_up' | "brightness kam karo" or "screen slow karo" = 'brightness_down'
+        4. "phone silent kar do" = 'volume_silent' | "general mode" or "ring mode" = 'volume_ring'
+        5. "auto rotate on" = 'auto_rotate_on' | "auto rotate off" = 'auto_rotate_off'
+        6. "bluetooth kholo" = 'bluetooth_settings' | "calculator kholo" = 'open_calculator'
+        7. SMART YOUTUBE: If user asks for a song from a movie, ensure your search query in 'app_package' includes the word "song". ALWAYS use 'youtube_search', DO NOT use 'open_app' for youtube videos.
+        8. Realtime Data - Time: {live_time}, Location: Indore, India {memory_context}"""
         
         router_messages = [
             {"role": "system", "content": router_system_prompt},
@@ -272,7 +278,7 @@ async def chat_with_saarthi(request: ChatRequest):
         raise HTTPException(status_code=500, detail=f"Saarthi Brain Error: {str(e)}")
 
 # ==========================================
-# 👂 THE EARS: Audio Transcription 
+# 👂 THE EARS: Audio Transcription (WITH VOICE FOCUS)
 # ==========================================
 @app.post("/api/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
@@ -288,7 +294,8 @@ async def transcribe_audio(file: UploadFile = File(...)):
                 file=(file.filename, audio_file.read()),
                 model="whisper-large-v3",
                 language="hi",
-                prompt="Haan boss, bataiye. Main bilkul theek hoon. Ignore background noise and focus only on the main speaker's command.", 
+                # 🚀 EXTREME VOICE FOCUS PROMPT:
+                prompt="Haan boss, bataiye. Main bilkul theek hoon. Ignore ALL background noise, TV sounds, or secondary voices. Transcribe strictly the primary speaker's command.", 
                 response_format="json"
             )
         
