@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version Updated: God Mode + Router Fix + System Powers + Brightness + Strict Voice Focus
-app = FastAPI(title="Saarthi AI Core", version="18.0.0") 
+# Version Updated: Aggressive Tool Routing (Flashlight/Apps/System) + Voice Focus Maintained
+app = FastAPI(title="Saarthi AI Core", version="19.0.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -31,7 +31,7 @@ WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
 class ChatRequest(BaseModel):
     message: str
-    # 🚀 CLEAN GOD MODE PROMPT + STRICT VOICE FOCUS
+    # 🚀 CLEAN GOD MODE PROMPT + STRICT VOICE FOCUS (Intact from your old code)
     system_prompt: str = """You are Saarthi (Jarvis), an ultra-intelligent, highly empathetic AI assistant.
     CRITICAL RULES:
     1. LANGUAGE: Converse naturally in 'Hinglish' (Hindi words written with the English alphabet). Example: 'Theek hai boss'. NEVER use Devanagari (हिंदी) or Urdu scripts.
@@ -49,7 +49,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (Ultimate System Manager + Voice Focus Active)!"}
+    return {"status": "🟢 Saarthi AI is Online (Aggressive App/System Routing + Voice Focus Active)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
@@ -142,18 +142,18 @@ saarthi_tools = [
         "type": "function",
         "function": {
             "name": "control_device",
-            "description": "Control the Android phone's hardware, media, or applications.",
+            "description": "Control the Android phone's hardware, media, or open any applications.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    # 🚀 UPGRADE: Flashlight, Brightness, Mute, and System Toggles ALL MERGED here
+                    # 🚀 UPGRADE: All System/Flashlight/Media toggles kept intact from V18
                     "action": {
                         "type": "string", 
                         "enum": ["open_app", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "close_app", "volume_up", "volume_down", "volume_mute", "volume_unmute", "youtube_search", "brightness_up", "brightness_down", "bluetooth_settings", "volume_silent", "volume_ring", "auto_rotate_on", "auto_rotate_off", "open_calculator"]
                     },
                     "app_package": {
                         "type": "string", 
-                        "description": "App package name, OR the exact search query (movie/song name) if action is youtube_search."
+                        "description": "Guess the package name of the app to open (e.g., com.whatsapp), OR the search query if action is youtube_search."
                     }
                 },
                 "required": ["action"]
@@ -190,17 +190,14 @@ async def chat_with_saarthi(request: ChatRequest):
         live_time = datetime.datetime.now(ist_timezone).strftime('%A, %d %B %Y, %I:%M %p')
         memory_context = f"\n[User's Saved Memory: {request.android_memory}]" if request.android_memory else ""
         
-        # 🚀 FIX: Ultimate Routing Rules (Flashlight, Volume, Brightness, System Toggles, YouTube Movie/Song)
-        router_system_prompt = f"""You are a silent tool-routing AI. You must ONLY output the native JSON tool call format. NEVER use '<function=...>' tags.
-        CRITICAL RULES & HINGLISH MAPPINGS:
-        1. "volume band" = 'volume_mute' | "volume chalu" = 'volume_unmute'
-        2. "flashlight band" or "torch band" = 'flashlight_off' | "flashlight on" or "torch chalu" = 'flashlight_on'
-        3. "brightness badhao" or "screen tez karo" = 'brightness_up' | "brightness kam karo" or "screen slow karo" = 'brightness_down'
-        4. "phone silent kar do" = 'volume_silent' | "general mode" or "ring mode" = 'volume_ring'
-        5. "auto rotate on" = 'auto_rotate_on' | "auto rotate off" = 'auto_rotate_off'
-        6. "bluetooth kholo" = 'bluetooth_settings' | "calculator kholo" = 'open_calculator'
-        7. SMART YOUTUBE: If user asks for a song from a movie, ensure your search query in 'app_package' includes the word "song". ALWAYS use 'youtube_search', DO NOT use 'open_app' for youtube videos.
-        8. Realtime Data - Time: {live_time}, Location: Indore, India {memory_context}"""
+        # 🚀 FIX: The Aggressive Router Prompt. This forces the 8B model to USE the tools rather than chatting or searching the web for flashlight/apps.
+        router_system_prompt = f"""You are a silent, highly aggressive tool-routing AI. You must ONLY output the native JSON tool call format. NEVER use '<function=...>' tags.
+        CRITICAL ROUTING RULES:
+        1. If user says ANY app name to open (e.g. "whatsapp kholo", "instagram open karo"), IMMEDIATELY use control_device -> open_app.
+        2. "flashlight chalu/on" or "torch on" = 'flashlight_on' | "flashlight band/off" or "torch off" = 'flashlight_off'. NEVER search the web for flashlight.
+        3. SMART YOUTUBE: If user asks to play a song/movie on YouTube, ALWAYS use control_device -> youtube_search. DO NOT use open_app. Ensure your query includes "song" if a song is requested.
+        4. "volume band" = 'volume_mute' | "volume chalu" = 'volume_unmute'.
+        5. Realtime Data - Time: {live_time}, Location: Indore, India {memory_context}"""
         
         router_messages = [
             {"role": "system", "content": router_system_prompt},
@@ -213,7 +210,7 @@ async def chat_with_saarthi(request: ChatRequest):
             model="llama-3.1-8b-instant", 
             tools=saarthi_tools,
             tool_choice="auto",
-            temperature=0.0, 
+            temperature=0.0, # Zero hallucination, strict tools
             max_tokens=1024,
         )
         
@@ -294,7 +291,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
                 file=(file.filename, audio_file.read()),
                 model="whisper-large-v3",
                 language="hi",
-                # 🚀 EXTREME VOICE FOCUS PROMPT:
+                # 🚀 EXTREME VOICE FOCUS PROMPT (Intact from your old code):
                 prompt="Haan boss, bataiye. Main bilkul theek hoon. Ignore ALL background noise, TV sounds, or secondary voices. Transcribe strictly the primary speaker's command.", 
                 response_format="json"
             )
