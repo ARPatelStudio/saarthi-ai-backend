@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from groq import AsyncGroq
 from dotenv import load_dotenv
 from duckduckgo_search import DDGS 
+from pymongo import MongoClient
 
 # Logs Setup
 logging.basicConfig(level=logging.INFO)
@@ -17,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version Updated: Translator Mode, Auto-Correction AI & Close All Apps Added
-app = FastAPI(title="Saarthi AI Core", version="22.0.0") 
+# Version Updated: Permanent Cloud Brain (MongoDB) Integration & Smart Intents
+app = FastAPI(title="Saarthi AI Core", version="23.0.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -26,14 +27,35 @@ if not api_key:
     logger.error("🚨 GROQ_API_KEY is missing from environment variables!")
 
 client = AsyncGroq(api_key=api_key)
-
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
+
+# ==========================================
+# 🧠 MONGODB CLOUD BRAIN SETUP
+# ==========================================
+MONGO_URI = "mongodb+srv://favouritegamer192_db_user:pjt6UStm6rB3ekEv@saarthi.sfsuxij.mongodb.net/?appName=Saarthi"
+try:
+    mongo_client = MongoClient(MONGO_URI)
+    db = mongo_client["saarthi_db"]
+    memory_col = db["permanent_memory"]
+    mongo_client.admin.command('ping') 
+    logger.info("🟢 MongoDB Cloud Brain Connected Successfully!")
+except Exception as e:
+    logger.error(f"🔴 MongoDB Connection Error: {e}")
+
+def get_cloud_memory():
+    """Database se saari memory nikal kar string banata hai"""
+    try:
+        memories = memory_col.find({})
+        mem_list = [f"- {m['key']}: {m['value']}" for m in memories]
+        return "\n".join(mem_list) if mem_list else "Abhi tak koi memory save nahi hui hai."
+    except Exception as e:
+        return "Database error."
 
 class ChatRequest(BaseModel):
     message: str
     system_prompt: str = """You are Saarthi (Jarvis), an ultra-intelligent, highly empathetic AI assistant.
     CRITICAL RULES:
-    1. LANGUAGE & TRANSLATOR: Converse naturally in 'Hinglish' (Hindi words in English alphabet). NEVER use Devanagari or Urdu. IF the user asks you to translate something (e.g., English to Hindi, or any language), act as a Real-Time Translator and provide the exact translation in Hinglish.
+    1. LANGUAGE & TRANSLATOR: Converse naturally in 'Hinglish' (Hindi words in English alphabet). NEVER use Devanagari or Urdu. IF the user asks you to translate something, act as a Real-Time Translator and provide the exact translation in Hinglish.
     2. AUTO-CORRECT: The voice-to-text might send you misspelled or broken words. Use your High IQ to auto-correct the user's intent internally before responding.
     3. IQ & EQ: You have an IQ of 250+. Act as a friendly companion, a Love Guru, or a wise counselor. Address the user as 'Boss'.
     4. VOICE FOCUS: The user's voice is the ONLY authority. Ignore background noise. Focus ONLY on the primary speaker.
@@ -49,7 +71,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (V22: Translator + Auto-Correct + Close All Apps Active)!"}
+    return {"status": "🟢 Saarthi AI is Online (V23: Permanent Cloud Brain Connected)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
@@ -102,7 +124,7 @@ saarthi_tools = [
         "type": "function",
         "function": {
             "name": "save_to_memory",
-            "description": "Remember personal information.",
+            "description": "Save important user preferences, locations, or facts permanently to the Cloud Brain.",
             "parameters": {"type": "object", "properties": {"info_key": {"type": "string"}, "info_value": {"type": "string"}}, "required": ["info_key", "info_value"]}
         }
     },
@@ -150,17 +172,20 @@ async def chat_with_saarthi(request: ChatRequest):
     try:
         ist_timezone = pytz.timezone('Asia/Kolkata')
         live_time = datetime.datetime.now(ist_timezone).strftime('%A, %d %B %Y, %I:%M %p')
-        memory_context = f"\n[User's Saved Memory: {request.android_memory}]" if request.android_memory else ""
         
-        # 🚀 FIX: Added "sabhi app band karo" -> close_app mapping explicitly.
+        # 🚀 THE MAGIC: Har command se pehle Jarvis aapki Cloud Memory padhega!
+        cloud_memory = get_cloud_memory()
+        memory_context = f"\n[JARVIS PERMANENT CLOUD MEMORY:\n{cloud_memory}]\n[LIVE ANDROID GPS/LOCATION: {request.android_memory}]"
+        
         router_system_prompt = f"""You are a smart, silent tool-routing AI. Users may speak in casual/broken Hinglish. AUTO-CORRECT their spelling internally and map to the correct tool. NEVER use XML tags.
         INTENT GUIDE:
         1. App Opening: "khol", "open", "chalao" + [App Name] -> 'control_device' -> 'open_app' with app name.
         2. Toggles: "band/off/mute" -> '_off' or '_mute'. "chalu/on/badhao" -> '_on' or '_up'.
         3. YouTube: "song", "gaana", "movie", "video" -> ALWAYS use 'youtube_search'. Include "song" if requested.
         4. Close All / Go Home: "sabhi app band karo", "sabhi app close karo", "close all apps", "clear screen" -> ALWAYS use 'control_device' -> 'close_app'.
-        5. Translation: If user asks to translate, DO NOT invoke any tools. Just let the main AI translate it normally.
-        6. Realtime Data - Time: {live_time}, Location: Indore, India {memory_context}"""
+        5. Memory: If user asks you to remember something, use 'save_to_memory'.
+        6. Translation: If user asks to translate, DO NOT invoke any tools. Just let the main AI translate it normally.
+        7. Realtime Data - Time: {live_time} {memory_context}"""
         
         router_messages = [{"role": "system", "content": router_system_prompt}, {"role": "user", "content": request.message}]
         
@@ -172,7 +197,7 @@ async def chat_with_saarthi(request: ChatRequest):
         tool_calls = response_message.tool_calls
 
         creative_messages = [
-            {"role": "system", "content": f"{request.system_prompt}\nREALTIME DATA:\n- Time: {live_time}\n- Location: Indore, India {memory_context}"},
+            {"role": "system", "content": f"{request.system_prompt}\nREALTIME DATA:\n- Time: {live_time} {memory_context}"},
             {"role": "user", "content": request.message}
         ]
 
@@ -185,24 +210,35 @@ async def chat_with_saarthi(request: ChatRequest):
                 if func_name == "perform_web_search":
                     web_data = perform_web_search(func_args.get("query"))
                     creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": web_data})
-                elif func_name == "navigate_to":
-                    return ChatResponse(reply="Processing request, boss.", action="OPEN_MAPS", action_data1=func_args.get("destination"))
-                elif func_name == "save_to_memory":
-                    return ChatResponse(reply="Processing request, boss.", action="SAVE_MEMORY", action_data1=func_args.get("info_key"), action_data2=func_args.get("info_value"))
-                elif func_name == "control_device":
-                    return ChatResponse(reply="Processing request, boss.", action="CONTROL_DEVICE", action_data1=func_args.get("action"), action_data2=func_args.get("app_package", ""))
-                elif func_name == "communicate":
-                    return ChatResponse(reply="Processing request, boss.", action="COMMUNICATE", action_data1=func_args.get("method"), action_data2=func_args.get("contact_name"), action_data3=func_args.get("message_text", ""))
+                
                 elif func_name == "get_live_weather":
                     weather_data = get_live_weather(func_args.get("location"))
                     creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": weather_data})
 
-            if any(tc.function.name in ["perform_web_search", "get_live_weather"] for tc in tool_calls):
+                # 🚀 FIX: MongoDB mein seedha save karna!
+                elif func_name == "save_to_memory":
+                    k = func_args.get("info_key")
+                    v = func_args.get("info_value")
+                    try:
+                        memory_col.update_one({"key": k}, {"$set": {"value": v}}, upsert=True)
+                        success_msg = f"Cloud Brain Updated: '{k}' is now '{v}'."
+                    except Exception as e:
+                        success_msg = f"Database Error."
+                    creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": success_msg})
+
+                elif func_name == "navigate_to":
+                    return ChatResponse(reply="Processing request, boss.", action="OPEN_MAPS", action_data1=func_args.get("destination"))
+                elif func_name == "control_device":
+                    return ChatResponse(reply="Processing request, boss.", action="CONTROL_DEVICE", action_data1=func_args.get("action"), action_data2=func_args.get("app_package", ""))
+                elif func_name == "communicate":
+                    return ChatResponse(reply="Processing request, boss.", action="COMMUNICATE", action_data1=func_args.get("method"), action_data2=func_args.get("contact_name"), action_data3=func_args.get("message_text", ""))
+
+            # 🚀 FIX: 70B Model generate karega answer (Web, Weather aur Database save ke baad)
+            if any(tc.function.name in ["perform_web_search", "get_live_weather", "save_to_memory"] for tc in tool_calls):
                 final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7)
                 return ChatResponse(reply=final_response.choices[0].message.content)
 
         final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7)
-        logger.info("✅ Success from Groq Chat (70B)")
         return ChatResponse(reply=final_response.choices[0].message.content)
 
     except Exception as e:
