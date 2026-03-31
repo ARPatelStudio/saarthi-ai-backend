@@ -13,12 +13,12 @@ from duckduckgo_search import DDGS
 
 # Logs Setup
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(_name_)
 
 load_dotenv()
 
-# Version Updated: Ultimate Google-like Intent Recognition & 100% Powers Kept Safe
-app = FastAPI(title="Saarthi AI Core", version="21.0.0") 
+# Version Updated: Translator Mode, Auto-Correction AI & Close All Apps Added
+app = FastAPI(title="Saarthi AI Core", version="22.0.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -33,10 +33,11 @@ class ChatRequest(BaseModel):
     message: str
     system_prompt: str = """You are Saarthi (Jarvis), an ultra-intelligent, highly empathetic AI assistant.
     CRITICAL RULES:
-    1. LANGUAGE: Converse naturally in 'Hinglish' (Hindi words written with the English alphabet). Example: 'Theek hai boss'. NEVER use Devanagari (हिंदी) or Urdu scripts.
-    2. IQ & EQ: You have an IQ of 250+. Act as a friendly companion, a Love Guru, or a wise counselor. Always address the user as 'Boss'.
-    3. VOICE FOCUS: The user's voice is the ONLY authority. Ignore any chaotic background noise. Focus ONLY on the core command given by the primary speaker (Boss).
-    4. TONE: Keep your responses highly accurate, natural, crisp, short, and human-like."""
+    1. LANGUAGE & TRANSLATOR: Converse naturally in 'Hinglish' (Hindi words in English alphabet). NEVER use Devanagari or Urdu. IF the user asks you to translate something (e.g., English to Hindi, or any language), act as a Real-Time Translator and provide the exact translation in Hinglish.
+    2. AUTO-CORRECT: The voice-to-text might send you misspelled or broken words. Use your High IQ to auto-correct the user's intent internally before responding.
+    3. IQ & EQ: You have an IQ of 250+. Act as a friendly companion, a Love Guru, or a wise counselor. Address the user as 'Boss'.
+    4. VOICE FOCUS: The user's voice is the ONLY authority. Ignore background noise. Focus ONLY on the primary speaker.
+    5. TONE: Keep your responses highly accurate, natural, crisp, short, and human-like."""
     android_memory: str = "" 
 
 class ChatResponse(BaseModel):
@@ -48,7 +49,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (V21: Smart Intent & Safe App Launch Active)!"}
+    return {"status": "🟢 Saarthi AI is Online (V22: Translator + Auto-Correct + Close All Apps Active)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
@@ -119,8 +120,7 @@ saarthi_tools = [
                     },
                     "app_package": {
                         "type": "string", 
-                        # 🚀 AI ko strict instruction di hai ki App ka NORMAL NAAM bhejna hai.
-                        "description": "If action is 'open_app', provide ONLY the COMMON NAME of the app (e.g., 'WhatsApp', 'Instagram', 'Settings', 'Camera'). DO NOT send package names like com.whatsapp. If action is 'youtube_search', provide the search query."
+                        "description": "If action is 'open_app', provide ONLY the COMMON NAME of the app. DO NOT send package names."
                     }
                 },
                 "required": ["action"]
@@ -145,9 +145,6 @@ saarthi_tools = [
     }
 ]
 
-# ==========================================
-# 🧠 THE BRAIN: Split-Brain Architecture Endpoint 
-# ==========================================
 @app.post("/chat", response_model=ChatResponse)
 async def chat_with_saarthi(request: ChatRequest):
     try:
@@ -155,19 +152,18 @@ async def chat_with_saarthi(request: ChatRequest):
         live_time = datetime.datetime.now(ist_timezone).strftime('%A, %d %B %Y, %I:%M %p')
         memory_context = f"\n[User's Saved Memory: {request.android_memory}]" if request.android_memory else ""
         
-        # 🚀 FIX: The "Ulti-Seedhi Command" Google Assistant Style Router Prompt
-        router_system_prompt = f"""You are a smart, silent tool-routing AI. Users may speak in casual/broken Hinglish. Catch the CORE INTENT and map it to the correct tool. NEVER use XML or '<function=...>' tags.
+        # 🚀 FIX: Added "sabhi app band karo" -> close_app mapping explicitly.
+        router_system_prompt = f"""You are a smart, silent tool-routing AI. Users may speak in casual/broken Hinglish. AUTO-CORRECT their spelling internally and map to the correct tool. NEVER use XML tags.
         INTENT GUIDE:
-        1. App Opening: If user says words like "khol", "kholo", "open", "chalao", "start" + [App Name] -> ALWAYS use 'control_device' -> 'open_app'. Put ONLY the app's clean name in 'app_package' (e.g., "bhai whatsapp khol de" -> app_package="WhatsApp").
-        2. Toggles & Settings: 
-           - "band", "off", "mute" -> map to the correct '_off' or '_mute' action.
-           - "chalu", "on", "badhao" -> map to '_on' or '_up' actions.
-        3. YouTube & Media: "song", "gaana", "movie", "video" -> ALWAYS use 'youtube_search'. Do NOT use open_app for videos. Include the word "song" if a song is requested.
-        4. Realtime Data - Time: {live_time}, Location: Indore, India {memory_context}"""
+        1. App Opening: "khol", "open", "chalao" + [App Name] -> 'control_device' -> 'open_app' with app name.
+        2. Toggles: "band/off/mute" -> '_off' or '_mute'. "chalu/on/badhao" -> '_on' or '_up'.
+        3. YouTube: "song", "gaana", "movie", "video" -> ALWAYS use 'youtube_search'. Include "song" if requested.
+        4. Close All / Go Home: "sabhi app band karo", "sabhi app close karo", "close all apps", "clear screen" -> ALWAYS use 'control_device' -> 'close_app'.
+        5. Translation: If user asks to translate, DO NOT invoke any tools. Just let the main AI translate it normally.
+        6. Realtime Data - Time: {live_time}, Location: Indore, India {memory_context}"""
         
         router_messages = [{"role": "system", "content": router_system_prompt}, {"role": "user", "content": request.message}]
         
-        # 🧠 BRAIN 1: THE LOGIC ROUTER (8B Model - Zero Hallucination)
         chat_completion_router = await client.chat.completions.create(
             messages=router_messages, model="llama-3.1-8b-instant", tools=saarthi_tools, tool_choice="auto", temperature=0.0, max_tokens=1024,
         )
@@ -206,6 +202,7 @@ async def chat_with_saarthi(request: ChatRequest):
                 return ChatResponse(reply=final_response.choices[0].message.content)
 
         final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7)
+        logger.info("✅ Success from Groq Chat (70B)")
         return ChatResponse(reply=final_response.choices[0].message.content)
 
     except Exception as e:
