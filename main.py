@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version Updated: Permanent Cloud Brain (MongoDB) Integration & Smart Intents
-app = FastAPI(title="Saarthi AI Core", version="23.0.0") 
+# Version Updated: Continuous Chat, Personas (Chef, Doctor, etc), Calls, Camera & Dictation
+app = FastAPI(title="Saarthi AI Core", version="24.0.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -51,6 +51,9 @@ def get_cloud_memory():
     except Exception as e:
         return "Database error."
 
+# 🚀 CONTINUOUS CHAT MEMORY (Short-term memory)
+global_chat_history = []
+
 class ChatRequest(BaseModel):
     message: str
     system_prompt: str = """You are Saarthi (Jarvis), an ultra-intelligent, highly empathetic AI assistant.
@@ -71,7 +74,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (V23: Permanent Cloud Brain Connected)!"}
+    return {"status": "🟢 Saarthi AI is Online (V24: Personas + Continuous Chat + Call/Camera Controls)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
@@ -138,11 +141,12 @@ saarthi_tools = [
                 "properties": {
                     "action": {
                         "type": "string", 
-                        "enum": ["open_app", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "close_app", "volume_up", "volume_down", "volume_mute", "volume_unmute", "youtube_search", "brightness_up", "brightness_down", "bluetooth_settings", "volume_silent", "volume_ring", "auto_rotate_on", "auto_rotate_off", "open_calculator"]
+                        # 🚀 NEW ACTIONS ADDED HERE
+                        "enum": ["open_app", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "close_app", "volume_up", "volume_down", "volume_mute", "volume_unmute", "youtube_search", "brightness_up", "brightness_down", "bluetooth_settings", "volume_silent", "volume_ring", "auto_rotate_on", "auto_rotate_off", "open_calculator", "accept_call", "reject_call", "open_camera", "open_video_camera", "open_audio_recorder", "copy_to_clipboard", "clear_chat"]
                     },
                     "app_package": {
                         "type": "string", 
-                        "description": "If action is 'open_app', provide ONLY the COMMON NAME of the app. DO NOT send package names."
+                        "description": "If 'open_app', provide ONLY the app's COMMON NAME. If 'copy_to_clipboard', provide the EXACT TEXT the user wants you to copy/type."
                     }
                 },
                 "required": ["action"]
@@ -169,23 +173,27 @@ saarthi_tools = [
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_with_saarthi(request: ChatRequest):
+    global global_chat_history
     try:
         ist_timezone = pytz.timezone('Asia/Kolkata')
         live_time = datetime.datetime.now(ist_timezone).strftime('%A, %d %B %Y, %I:%M %p')
         
-        # 🚀 THE MAGIC: Har command se pehle Jarvis aapki Cloud Memory padhega!
         cloud_memory = get_cloud_memory()
         memory_context = f"\n[JARVIS PERMANENT CLOUD MEMORY:\n{cloud_memory}]\n[LIVE ANDROID GPS/LOCATION: {request.android_memory}]"
         
-        router_system_prompt = f"""You are a smart, silent tool-routing AI. Users may speak in casual/broken Hinglish. AUTO-CORRECT their spelling internally and map to the correct tool. NEVER use XML tags.
+        # 🚀 1. ROUTER PROMPT (For 8B Model to pick tools)
+        router_system_prompt = f"""You are a smart, silent tool-routing AI. AUTO-CORRECT spelling internally and map to the correct tool. NEVER use XML tags.
         INTENT GUIDE:
-        1. App Opening: "khol", "open", "chalao" + [App Name] -> 'control_device' -> 'open_app' with app name.
-        2. Toggles: "band/off/mute" -> '_off' or '_mute'. "chalu/on/badhao" -> '_on' or '_up'.
-        3. YouTube: "song", "gaana", "movie", "video" -> ALWAYS use 'youtube_search'. Include "song" if requested.
-        4. Close All / Go Home: "sabhi app band karo", "sabhi app close karo", "close all apps", "clear screen" -> ALWAYS use 'control_device' -> 'close_app'.
-        5. Memory: If user asks you to remember something, use 'save_to_memory'.
-        6. Translation: If user asks to translate, DO NOT invoke any tools. Just let the main AI translate it normally.
-        7. Realtime Data - Time: {live_time} {memory_context}"""
+        1. Calls: "call uthao", "answer call" -> 'accept_call'. "call kaato", "reject" -> 'reject_call'.
+        2. Media Capture: "photo khicho", "camera open" -> 'open_camera'. "video record" -> 'open_video_camera'. "voice record" -> 'open_audio_recorder'.
+        3. Dictation/Typing: "yeh text likho [text]", "type karo [text]", "copy karo [text]" -> 'copy_to_clipboard' and pass the text in 'app_package'.
+        4. Chat Reset: "new chat", "purani baat bhul jao", "restart" -> 'clear_chat'.
+        5. App Opening: "khol", "open", "chalao" + [App Name] -> 'open_app'.
+        6. Close All: "sabhi app band karo", "close all apps", "clear screen" -> 'close_app'.
+        7. YouTube: "song", "gaana", "movie", "video" -> 'youtube_search'. Include "song" if requested.
+        8. Memory: If user asks you to remember something, use 'save_to_memory'.
+        9. Translation or Persona Request: DO NOT invoke tools. Let main AI handle it.
+        10. Realtime Data - Time: {live_time}"""
         
         router_messages = [{"role": "system", "content": router_system_prompt}, {"role": "user", "content": request.message}]
         
@@ -196,11 +204,28 @@ async def chat_with_saarthi(request: ChatRequest):
         response_message = chat_completion_router.choices[0].message
         tool_calls = response_message.tool_calls
 
-        creative_messages = [
-            {"role": "system", "content": f"{request.system_prompt}\nREALTIME DATA:\n- Time: {live_time} {memory_context}"},
-            {"role": "user", "content": request.message}
-        ]
+        # 🚀 2. CREATIVE PROMPT (For 70B Model to talk) + CONTINUOUS CHAT HISTORY + PERSONAS
+        persona_rules = """
+        PERSONA RULES (Adopt completely if requested by the user):
+        - Teacher Mode: Explain simply with examples.
+        - Doctor Mode: Ask symptoms, suggest home remedies, but advise seeing a real doctor.
+        - Master Chef Mode: Ask for ingredients, give step-by-step recipes, wait for user to say "next step".
+        - Bhav-Tau (Bargaining) Mode: Give solid tips on how to reduce price, act like a smart Indian shopper.
+        - Gadar/Angry Mode: Speak with heavy attitude, aggressive and dramatic tone.
+        - Love Guru Mode: Give romantic, poetic, and deep relationship advice.
+        - Helper/Engineering Mode: Give practical, technical, and precise step-by-step solutions.
+        """
+        
+        creative_system_content = f"{request.system_prompt}\n{persona_rules}\nREALTIME DATA:\n- Time: {live_time} {memory_context}"
+        creative_messages = [{"role": "system", "content": creative_system_content}]
+        
+        # Add last 10 messages for context (Short-Term Memory)
+        for msg in global_chat_history[-10:]:
+            creative_messages.append(msg)
+            
+        creative_messages.append({"role": "user", "content": request.message})
 
+        # 🚀 3. EXECUTE TOOLS IF ANY
         if tool_calls:
             creative_messages.append(response_message)
             for tool_call in tool_calls:
@@ -215,7 +240,6 @@ async def chat_with_saarthi(request: ChatRequest):
                     weather_data = get_live_weather(func_args.get("location"))
                     creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": weather_data})
 
-                # 🚀 FIX: MongoDB mein seedha save karna!
                 elif func_name == "save_to_memory":
                     k = func_args.get("info_key")
                     v = func_args.get("info_value")
@@ -228,20 +252,40 @@ async def chat_with_saarthi(request: ChatRequest):
 
                 elif func_name == "navigate_to":
                     return ChatResponse(reply="Processing request, boss.", action="OPEN_MAPS", action_data1=func_args.get("destination"))
+                
                 elif func_name == "control_device":
-                    return ChatResponse(reply="Processing request, boss.", action="CONTROL_DEVICE", action_data1=func_args.get("action"), action_data2=func_args.get("app_package", ""))
+                    action = func_args.get("action")
+                    # 🚀 CLEAR CHAT TOOL LOGIC
+                    if action == "clear_chat":
+                        global_chat_history.clear()
+                        return ChatResponse(reply="Boss, purani saari baatein memory se delete kar di hain. Nayi shuruwat karte hain!", action="NONE")
+                        
+                    return ChatResponse(reply="Processing request, boss.", action="CONTROL_DEVICE", action_data1=action, action_data2=func_args.get("app_package", ""))
+                
                 elif func_name == "communicate":
                     return ChatResponse(reply="Processing request, boss.", action="COMMUNICATE", action_data1=func_args.get("method"), action_data2=func_args.get("contact_name"), action_data3=func_args.get("message_text", ""))
 
-            # 🚀 FIX: 70B Model generate karega answer (Web, Weather aur Database save ke baad)
+            # Generate final response after tools (Web, Weather, Memory)
             if any(tc.function.name in ["perform_web_search", "get_live_weather", "save_to_memory"] for tc in tool_calls):
                 final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7)
-                return ChatResponse(reply=final_response.choices[0].message.content)
+                reply_text = final_response.choices[0].message.content
+                
+                # Save to history
+                global_chat_history.extend([{"role": "user", "content": request.message}, {"role": "assistant", "content": reply_text}])
+                return ChatResponse(reply=reply_text)
 
+        # Generate final response if no tools needed (General Chat)
         final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7)
-        return ChatResponse(reply=final_response.choices[0].message.content)
+        reply_text = final_response.choices[0].message.content
+        
+        # 🚀 Save conversation to history so Jarvis remembers context!
+        global_chat_history.extend([{"role": "user", "content": request.message}, {"role": "assistant", "content": reply_text}])
+        
+        logger.info("✅ Success from Groq Chat (70B)")
+        return ChatResponse(reply=reply_text)
 
     except Exception as e:
+        logger.error(f"💥 CRITICAL CHAT ERROR: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Saarthi Brain Error: {str(e)}")
 
 @app.post("/api/transcribe")
