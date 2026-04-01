@@ -12,6 +12,7 @@ from groq import AsyncGroq
 from dotenv import load_dotenv
 from duckduckgo_search import DDGS 
 from pymongo import MongoClient
+import certifi  # 🚀 SSL Error Fix
 
 # Logs Setup
 logging.basicConfig(level=logging.INFO)
@@ -19,8 +20,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version Updated: Omnipotent Master (All Powers + Whisper Filter + Ghost Clicker)
-app = FastAPI(title="Saarthi AI Core", version="26.2.0") 
+# Version Updated: Omnipotent Master + SSL Fix + Whisper Filter
+app = FastAPI(title="Saarthi AI Core", version="26.3.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -35,7 +36,8 @@ WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 # ==========================================
 MONGO_URI = "mongodb+srv://favouritegamer192_db_user:pjt6UStm6rB3ekEv@saarthi.sfsuxij.mongodb.net/?appName=Saarthi"
 try:
-    mongo_client = MongoClient(MONGO_URI)
+    # 🚀 tlsCAFile=certifi.where() add kiya gaya hai taaki Cloud SSL Error na aaye
+    mongo_client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
     db = mongo_client["saarthi_db"]
     memory_col = db["permanent_memory"]
     mongo_client.admin.command('ping') 
@@ -75,7 +77,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (V26.2: Omnipotent Master & Filters Active)!"}
+    return {"status": "🟢 Saarthi AI is Online (V26.3: Omnipotent Master + SSL Fix Active)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
@@ -301,7 +303,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
         
         os.remove(temp_file_path)
         
-        # 🚀 FIX: WHISPER HALLUCINATION FILTER (Ghosts ko hatana)
+        # 🚀 FIX: WHISPER HALLUCINATION FILTER
         raw_text = transcription.text.strip()
         hallucinations = [
             "Thank you for watching.", "Thank you for watching", "Thanks for watching.", 
@@ -309,11 +311,9 @@ async def transcribe_audio(file: UploadFile = File(...)):
             "Please subscribe", "watching.", "subscribe to my channel"
         ]
         
-        # In words ko check karke kaat do
         for bad_word in hallucinations:
             raw_text = re.sub(re.escape(bad_word), "", raw_text, flags=re.IGNORECASE).strip()
             
-        # Agar filter hone ke baad text khali bacha, toh error dikhao (chup ho jao)
         if not raw_text:
             return {"text": "[error]"}
             
