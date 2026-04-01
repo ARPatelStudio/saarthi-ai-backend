@@ -5,6 +5,7 @@ import json
 import datetime
 import pytz
 import requests
+import re
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from groq import AsyncGroq
@@ -18,8 +19,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version Updated: Omnipotent Master (All Powers + UI Clicker & Notification Reader)
-app = FastAPI(title="Saarthi AI Core", version="26.0.0") 
+# Version Updated: Omnipotent Master (All Powers + Whisper Filter + Ghost Clicker)
+app = FastAPI(title="Saarthi AI Core", version="26.2.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -74,7 +75,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (V26: All Powers + Ghost Clicker Active)!"}
+    return {"status": "🟢 Saarthi AI is Online (V26.2: Omnipotent Master & Filters Active)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
@@ -141,7 +142,6 @@ saarthi_tools = [
                 "properties": {
                     "action": {
                         "type": "string", 
-                        # 🚀 ALL 28 POWERS COMBINED
                         "enum": ["open_app", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "close_app", "volume_up", "volume_down", "volume_mute", "volume_unmute", "youtube_search", "brightness_up", "brightness_down", "bluetooth_settings", "volume_silent", "volume_ring", "auto_rotate_on", "auto_rotate_off", "open_calculator", "accept_call", "reject_call", "open_camera", "open_video_camera", "open_audio_recorder", "copy_to_clipboard", "direct_type", "click_button", "system_nav", "read_notifications", "clear_chat"]
                     },
                     "app_package": {
@@ -185,7 +185,6 @@ async def chat_with_saarthi(request: ChatRequest):
         cloud_memory = get_cloud_memory()
         memory_context = f"\n[JARVIS PERMANENT CLOUD MEMORY:\n{cloud_memory}]\n[LIVE ANDROID GPS/LOCATION: {request.android_memory}]"
         
-        # 🚀 THE OMNIPOTENT ROUTER PROMPT
         router_system_prompt = f"""You are a smart, silent tool-routing AI. AUTO-CORRECT spelling internally and map to the correct tool. NEVER use XML tags.
         INTENT GUIDE:
         1. Notifications: "koi message aaya hai?", "whatsapp read karo" -> 'control_device' -> 'read_notifications'.
@@ -301,7 +300,25 @@ async def transcribe_audio(file: UploadFile = File(...)):
             )
         
         os.remove(temp_file_path)
-        return {"text": transcription.text.strip()}
+        
+        # 🚀 FIX: WHISPER HALLUCINATION FILTER (Ghosts ko hatana)
+        raw_text = transcription.text.strip()
+        hallucinations = [
+            "Thank you for watching.", "Thank you for watching", "Thanks for watching.", 
+            "Thanks for watching", "Thank you.", "Thank you", "Subscribe", 
+            "Please subscribe", "watching.", "subscribe to my channel"
+        ]
+        
+        # In words ko check karke kaat do
+        for bad_word in hallucinations:
+            raw_text = re.sub(re.escape(bad_word), "", raw_text, flags=re.IGNORECASE).strip()
+            
+        # Agar filter hone ke baad text khali bacha, toh error dikhao (chup ho jao)
+        if not raw_text:
+            return {"text": "[error]"}
+            
+        return {"text": raw_text}
+        
     except Exception as e:
         if os.path.exists(temp_file_path): os.remove(temp_file_path)
         raise HTTPException(status_code=500, detail=f"Saarthi Ears Error: {str(e)}")
