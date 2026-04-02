@@ -8,5 +8,6 @@ python-multipart>=0.0.9
 pytz>=2024.1
 requests>=2.31.0
 duckduckgo-search
-pymongo[srv]
+pymongo
+dnspython
 certifi
