@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version Updated: Vision AI, Alarms, Timers, Screen Reader & Echo Filter Added
-app = FastAPI(title="Saarthi AI Core", version="27.0.0") 
+# Version Updated: YouTube Strict Search Fix added
+app = FastAPI(title="Saarthi AI Core", version="27.1.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -55,7 +55,7 @@ def get_cloud_memory():
 
 # 🚀 CONTINUOUS CHAT MEMORY
 global_chat_history = []
-last_bot_reply = "" # 🚀 FIX: Khud ki aawaz sunne se rokne ke liye filter
+last_bot_reply = "" 
 
 class ChatRequest(BaseModel):
     message: str
@@ -76,7 +76,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (V27.0: Vision, Alarms & Echo Filter Active)!"}
+    return {"status": "🟢 Saarthi AI is Online (V27.1: YouTube Song Fix Active)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
@@ -134,12 +134,11 @@ saarthi_tools = [
                 "properties": {
                     "action": {
                         "type": "string", 
-                        # 🚀 NAYE FEATURES ADD KIYE (Alarms, Timer, Screen Reader)
                         "enum": ["open_app", "close_app", "youtube_search", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "volume_up", "volume_down", "volume_mute", "volume_unmute", "brightness_up", "brightness_down", "bluetooth_settings", "volume_silent", "volume_ring", "auto_rotate_on", "auto_rotate_off", "open_calculator", "accept_call", "reject_call", "open_camera", "open_video_camera", "open_audio_recorder", "copy_to_clipboard", "direct_type", "click_button", "system_nav", "read_notifications", "clear_chat", "set_alarm", "set_timer", "read_screen"]
                     },
                     "app_package": {
                         "type": "string", 
-                        "description": "App name for 'open_app'. Search query for 'youtube_search'. Time for 'set_alarm' (e.g. '06:00'). Minutes for 'set_timer' (e.g. '10')."
+                        "description": "App name for 'open_app'. EXACT SEARCH QUERY for 'youtube_search' (e.g. 'Baaghi 4 songs' or 'KGF movie'). Time for 'set_alarm' (e.g. '06:00'). Minutes for 'set_timer' (e.g. '10')."
                     },
                     "target_app": {
                         "type": "string",
@@ -173,10 +172,9 @@ async def chat_with_saarthi(request: ChatRequest):
     global global_chat_history
     global last_bot_reply
     
-    # 🚀 FIX 1: Khud ki aawaz ko process hone se rokna (Echo Filter)
     if last_bot_reply and last_bot_reply.lower() in request.message.lower() and len(request.message) > 10:
         logger.warning("Echo Detected! Ignoring self-generated speech.")
-        return ChatResponse(reply="...", action="NONE") # Return silent string so it doesn't loop
+        return ChatResponse(reply="...", action="NONE") 
         
     try:
         ist_timezone = pytz.timezone('Asia/Kolkata')
@@ -185,17 +183,18 @@ async def chat_with_saarthi(request: ChatRequest):
         cloud_memory = get_cloud_memory()
         memory_context = f"\n[JARVIS PERMANENT CLOUD MEMORY:\n{cloud_memory}]\n[LIVE ANDROID GPS/LOCATION: {request.android_memory}]"
         
+        # 🚀 FIX: YouTube Search Guide updated!
         router_system_prompt = f"""You are a smart, silent tool-routing AI. NEVER use XML tags.
         INTENT GUIDE:
         1. Notifications: "message aaya hai?" -> 'read_notifications'.
-        2. Screen Reading: "screen par kya likha hai", "padh kar sunao" -> 'read_screen'.
-        3. Alarms & Timers: "alarm lagao 6 baje ka" -> 'set_alarm', pass '06:00' in app_package. "10 minute ka timer" -> 'set_timer', pass '10' in app_package.
-        4. UI Clicks: "send dabao" -> 'click_button', pass button text in 'app_package'.
+        2. Screen Reading: "screen par kya likha hai" -> 'read_screen'.
+        3. Alarms/Timers: "alarm lagao 6 baje ka" -> 'set_alarm' with '06:00'. "10 minute ka timer" -> 'set_timer' with '10'.
+        4. UI Clicks: "send dabao" -> 'click_button', pass button text.
         5. Navigation: "back aao" -> 'system_nav' with 'back'.
         6. Typing: "yeh type karo [text]" -> 'direct_type', pass text in 'app_package'.
         7. Calls/Msgs: "mummy ko call lagao" -> use 'communicate' tool.
         8. Chat Reset: "new chat" -> 'clear_chat'.
-        9. YouTube: "baaghi 4 lagao" -> 'youtube_search', aur movie ka naam 'app_package' mein bhejo.
+        9. YouTube: "baaghi 4 ke gaane lagao" -> 'youtube_search'. DO NOT REMOVE the word "song" or "gaana". Pass EXACT full query like "Baaghi 4 songs" in 'app_package'.
         10. Realtime Data - Time: {live_time}"""
         
         router_messages = [{"role": "system", "content": router_system_prompt}, {"role": "user", "content": request.message}]
@@ -283,7 +282,6 @@ async def vision_analysis(file: UploadFile = File(...), prompt: str = Form("Is p
         contents = await file.read()
         base64_image = base64.b64encode(contents).decode('utf-8')
         
-        # Using Groq's Vision Model
         chat_completion = await client.chat.completions.create(
             model="llama-3.2-11b-vision-preview",
             messages=[
