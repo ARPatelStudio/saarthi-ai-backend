@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version Updated: YouTube Strict Search Fix added
-app = FastAPI(title="Saarthi AI Core", version="27.1.0") 
+# Version Updated: YouTube Strict Search Fix & Tool Chaining Error Fix
+app = FastAPI(title="Saarthi AI Core", version="27.2.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -76,7 +76,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (V27.1: YouTube Song Fix Active)!"}
+    return {"status": "🟢 Saarthi AI is Online (V27.2: YouTube Fix & Media Controls Active)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
@@ -183,8 +183,8 @@ async def chat_with_saarthi(request: ChatRequest):
         cloud_memory = get_cloud_memory()
         memory_context = f"\n[JARVIS PERMANENT CLOUD MEMORY:\n{cloud_memory}]\n[LIVE ANDROID GPS/LOCATION: {request.android_memory}]"
         
-        # 🚀 FIX: YouTube Search Guide updated!
-        router_system_prompt = f"""You are a smart, silent tool-routing AI. NEVER use XML tags.
+        # 🚀 FIX: Error 400 Fix. Strict Tool Usage & Pause/Play added.
+        router_system_prompt = f"""You are a smart, silent tool-routing AI. NEVER use XML tags. CRITICAL: ONLY CALL ONE TOOL AT A TIME.
         INTENT GUIDE:
         1. Notifications: "message aaya hai?" -> 'read_notifications'.
         2. Screen Reading: "screen par kya likha hai" -> 'read_screen'.
@@ -194,8 +194,9 @@ async def chat_with_saarthi(request: ChatRequest):
         6. Typing: "yeh type karo [text]" -> 'direct_type', pass text in 'app_package'.
         7. Calls/Msgs: "mummy ko call lagao" -> use 'communicate' tool.
         8. Chat Reset: "new chat" -> 'clear_chat'.
-        9. YouTube: "baaghi 4 ke gaane lagao" -> 'youtube_search'. DO NOT REMOVE the word "song" or "gaana". Pass EXACT full query like "Baaghi 4 songs" in 'app_package'.
-        10. Realtime Data - Time: {live_time}"""
+        9. YouTube Search & Play: "baaghi 4 lagao", "[Movie] ka gana", "search [title]", "play [song]" -> 'youtube_search'. Pass EXACT query in 'app_package'. DO NOT call 'open_app'.
+        10. Media Control (Pause/Play/Stop): "video roko", "pause karo", "chalu karo" -> 'media_pause' or 'media_play'.
+        11. Realtime Data - Time: {live_time}"""
         
         router_messages = [{"role": "system", "content": router_system_prompt}, {"role": "user", "content": request.message}]
         
@@ -220,42 +221,45 @@ async def chat_with_saarthi(request: ChatRequest):
         creative_messages.append({"role": "user", "content": request.message})
 
         if tool_calls:
+            # We take only the FIRST tool call to prevent chaining errors
+            tool_call = tool_calls[0]
+            
             creative_messages.append(response_message)
-            for tool_call in tool_calls:
-                func_name = tool_call.function.name
-                func_args = json.loads(tool_call.function.arguments)
-                
-                if func_name == "perform_web_search":
-                    web_data = perform_web_search(func_args.get("query"))
-                    creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": web_data})
-                
-                elif func_name == "get_live_weather":
-                    weather_data = get_live_weather(func_args.get("location"))
-                    creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": weather_data})
+            
+            func_name = tool_call.function.name
+            func_args = json.loads(tool_call.function.arguments)
+            
+            if func_name == "perform_web_search":
+                web_data = perform_web_search(func_args.get("query"))
+                creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": web_data})
+            
+            elif func_name == "get_live_weather":
+                weather_data = get_live_weather(func_args.get("location"))
+                creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": weather_data})
 
-                elif func_name == "save_to_memory":
-                    k = func_args.get("info_key")
-                    v = func_args.get("info_value")
-                    try:
-                        memory_col.update_one({"key": k}, {"$set": {"value": v}}, upsert=True)
-                        success_msg = f"Cloud Brain Updated: '{k}' is now '{v}'."
-                    except Exception as e:
-                        success_msg = "Database Error."
-                    creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": success_msg})
+            elif func_name == "save_to_memory":
+                k = func_args.get("info_key")
+                v = func_args.get("info_value")
+                try:
+                    memory_col.update_one({"key": k}, {"$set": {"value": v}}, upsert=True)
+                    success_msg = f"Cloud Brain Updated: '{k}' is now '{v}'."
+                except Exception as e:
+                    success_msg = "Database Error."
+                creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": success_msg})
+            
+            elif func_name == "control_device":
+                action = func_args.get("action")
+                if action == "clear_chat":
+                    global_chat_history.clear()
+                    return ChatResponse(reply="Boss, purani saari baatein delete kar di hain. Nayi shuruwat karte hain!", action="NONE")
                 
-                elif func_name == "control_device":
-                    action = func_args.get("action")
-                    if action == "clear_chat":
-                        global_chat_history.clear()
-                        return ChatResponse(reply="Boss, purani saari baatein delete kar di hain. Nayi shuruwat karte hain!", action="NONE")
-                    
-                    target_app = func_args.get("target_app", "NONE")
-                    return ChatResponse(reply="Processing request, boss.", action="CONTROL_DEVICE", action_data1=action, action_data2=func_args.get("app_package", ""), action_data3=target_app)
-                
-                elif func_name == "communicate":
-                    return ChatResponse(reply="Processing request, boss.", action="COMMUNICATE", action_data1=func_args.get("method"), action_data2=func_args.get("contact_name"), action_data3=func_args.get("message_text", ""))
+                target_app = func_args.get("target_app", "NONE")
+                return ChatResponse(reply="Processing request, boss.", action="CONTROL_DEVICE", action_data1=action, action_data2=func_args.get("app_package", ""), action_data3=target_app)
+            
+            elif func_name == "communicate":
+                return ChatResponse(reply="Processing request, boss.", action="COMMUNICATE", action_data1=func_args.get("method"), action_data2=func_args.get("contact_name"), action_data3=func_args.get("message_text", ""))
 
-            if any(tc.function.name in ["perform_web_search", "get_live_weather", "save_to_memory"] for tc in tool_calls):
+            if func_name in ["perform_web_search", "get_live_weather", "save_to_memory"]:
                 final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7)
                 reply_text = final_response.choices[0].message.content
                 global_chat_history.extend([{"role": "user", "content": request.message}, {"role": "assistant", "content": reply_text}])
