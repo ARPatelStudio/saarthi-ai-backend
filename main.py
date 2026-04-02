@@ -6,7 +6,8 @@ import datetime
 import pytz
 import requests
 import re
-from fastapi import FastAPI, HTTPException, UploadFile, File
+import base64
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 from groq import AsyncGroq
 from dotenv import load_dotenv
@@ -16,12 +17,12 @@ import certifi
 
 # Logs Setup
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(_name_)
 
 load_dotenv()
 
-# Version Updated: YouTube Search Fix + SSL Fix + Whisper Filter
-app = FastAPI(title="Saarthi AI Core", version="26.4.0") 
+# Version Updated: Vision AI, Alarms, Timers, Screen Reader & Echo Filter Added
+app = FastAPI(title="Saarthi AI Core", version="27.0.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -45,7 +46,6 @@ except Exception as e:
     logger.error(f"🔴 MongoDB Connection Error: {e}")
 
 def get_cloud_memory():
-    """Database se saari memory nikal kar string banata hai"""
     try:
         memories = memory_col.find({})
         mem_list = [f"- {m['key']}: {m['value']}" for m in memories]
@@ -53,18 +53,18 @@ def get_cloud_memory():
     except Exception as e:
         return "Database error."
 
-# 🚀 CONTINUOUS CHAT MEMORY (Short-term memory)
+# 🚀 CONTINUOUS CHAT MEMORY
 global_chat_history = []
+last_bot_reply = "" # 🚀 FIX: Khud ki aawaz sunne se rokne ke liye filter
 
 class ChatRequest(BaseModel):
     message: str
     system_prompt: str = """You are Saarthi (Jarvis), an ultra-intelligent, highly empathetic AI assistant.
     CRITICAL RULES:
-    1. LANGUAGE & TRANSLATOR: Converse naturally in 'Hinglish' (Hindi words in English alphabet). NEVER use Devanagari or Urdu.
-    2. AUTO-CORRECT: Use your High IQ to auto-correct the user's intent internally before responding.
-    3. IQ & EQ: You have an IQ of 250+. Act as a friendly companion, a Love Guru, or a wise counselor. Address the user as 'Boss'.
-    4. VOICE FOCUS: The user's voice is the ONLY authority. Focus ONLY on the primary speaker.
-    5. TONE: Keep your responses highly accurate, natural, crisp, short, and human-like."""
+    1. LANGUAGE & TRANSLATOR: Converse naturally in 'Hinglish'. NEVER use Devanagari.
+    2. AUTO-CORRECT: Use High IQ to auto-correct broken voice-to-text.
+    3. IQ & EQ: IQ of 250+. Address the user as 'Boss'.
+    4. VOICE FOCUS: The user's voice is the ONLY authority."""
     android_memory: str = "" 
 
 class ChatResponse(BaseModel):
@@ -76,19 +76,18 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (V26.4: YouTube Fix & No Syntax Errors)!"}
+    return {"status": "🟢 Saarthi AI is Online (V27.0: Vision, Alarms & Echo Filter Active)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
 # ==========================================
 
 def perform_web_search(query: str):
-    logger.info(f"🔍 Searching Web for: {query}")
     try:
         results = DDGS().text(query, max_results=3)
         if not results: return "Web par kuch nahi mila boss."
         summary = "\n".join([f"- {r['title']}: {r['body']}" for r in results])
-        return f"Live Web Data for '{query}':\n{summary}\n\nRead this data and give a short, helpful Hinglish reply to the boss."
+        return f"Live Web Data for '{query}':\n{summary}"
     except Exception as e: return "Search engine mein issue hai boss."
 
 def get_live_weather(location: str):
@@ -120,16 +119,8 @@ saarthi_tools = [
     {
         "type": "function",
         "function": {
-            "name": "navigate_to",
-            "description": "Open maps for a destination.",
-            "parameters": {"type": "object", "properties": {"destination": {"type": "string"}}, "required": ["destination"]}
-        }
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "save_to_memory",
-            "description": "Save important user preferences permanently to the Cloud Brain.",
+            "description": "Save user preferences to the Cloud Brain.",
             "parameters": {"type": "object", "properties": {"info_key": {"type": "string"}, "info_value": {"type": "string"}}, "required": ["info_key", "info_value"]}
         }
     },
@@ -137,21 +128,22 @@ saarthi_tools = [
         "type": "function",
         "function": {
             "name": "control_device",
-            "description": "Control the Android phone's hardware, media, apps, and UI.",
+            "description": "Control hardware, apps, UI, Alarms, Timers, and Screen Reading.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string", 
-                        "enum": ["open_app", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "close_app", "volume_up", "volume_down", "volume_mute", "volume_unmute", "youtube_search", "brightness_up", "brightness_down", "bluetooth_settings", "volume_silent", "volume_ring", "auto_rotate_on", "auto_rotate_off", "open_calculator", "accept_call", "reject_call", "open_camera", "open_video_camera", "open_audio_recorder", "copy_to_clipboard", "direct_type", "click_button", "system_nav", "read_notifications", "clear_chat"]
+                        # 🚀 NAYE FEATURES ADD KIYE (Alarms, Timer, Screen Reader)
+                        "enum": ["open_app", "close_app", "youtube_search", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "volume_up", "volume_down", "volume_mute", "volume_unmute", "brightness_up", "brightness_down", "bluetooth_settings", "volume_silent", "volume_ring", "auto_rotate_on", "auto_rotate_off", "open_calculator", "accept_call", "reject_call", "open_camera", "open_video_camera", "open_audio_recorder", "copy_to_clipboard", "direct_type", "click_button", "system_nav", "read_notifications", "clear_chat", "set_alarm", "set_timer", "read_screen"]
                     },
                     "app_package": {
                         "type": "string", 
-                        "description": "App name for 'open_app'. Button name for 'click_button'. Search query (e.g. 'Baaghi 4 movie') for 'youtube_search'."
+                        "description": "App name for 'open_app'. Search query for 'youtube_search'. Time for 'set_alarm' (e.g. '06:00'). Minutes for 'set_timer' (e.g. '10')."
                     },
                     "target_app": {
                         "type": "string",
-                        "description": "If user says 'type X in WhatsApp', put 'WhatsApp' here. Otherwise leave empty."
+                        "description": "Target app if direct typing. Or specific context."
                     }
                 },
                 "required": ["action"]
@@ -162,7 +154,7 @@ saarthi_tools = [
         "type": "function",
         "function": {
             "name": "communicate",
-            "description": "Make a phone call or send a WhatsApp message.",
+            "description": "Make a phone call or send a WhatsApp message smartly.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -179,6 +171,13 @@ saarthi_tools = [
 @app.post("/chat", response_model=ChatResponse)
 async def chat_with_saarthi(request: ChatRequest):
     global global_chat_history
+    global last_bot_reply
+    
+    # 🚀 FIX 1: Khud ki aawaz ko process hone se rokna (Echo Filter)
+    if last_bot_reply and last_bot_reply.lower() in request.message.lower() and len(request.message) > 10:
+        logger.warning("Echo Detected! Ignoring self-generated speech.")
+        return ChatResponse(reply="...", action="NONE") # Return silent string so it doesn't loop
+        
     try:
         ist_timezone = pytz.timezone('Asia/Kolkata')
         live_time = datetime.datetime.now(ist_timezone).strftime('%A, %d %B %Y, %I:%M %p')
@@ -186,17 +185,18 @@ async def chat_with_saarthi(request: ChatRequest):
         cloud_memory = get_cloud_memory()
         memory_context = f"\n[JARVIS PERMANENT CLOUD MEMORY:\n{cloud_memory}]\n[LIVE ANDROID GPS/LOCATION: {request.android_memory}]"
         
-        router_system_prompt = f"""You are a smart, silent tool-routing AI. AUTO-CORRECT spelling internally and map to the correct tool. NEVER use XML tags.
+        router_system_prompt = f"""You are a smart, silent tool-routing AI. NEVER use XML tags.
         INTENT GUIDE:
-        1. Notifications: "koi message aaya hai?" -> 'read_notifications'.
-        2. UI Clicks: "send dabao" -> 'click_button', pass button text in 'app_package'.
-        3. Navigation: "back aao" -> 'system_nav' with 'back'.
-        4. Typing: "yeh type karo [text]" -> 'direct_type', pass text in 'app_package'.
-        5. Calls & Media: 'accept_call', 'reject_call', 'open_camera'.
-        6. Chat Reset: "new chat", "purani baat bhul jao" -> 'clear_chat'.
-        7. YouTube: "baaghi 4 lagao", "song play karo" -> 'youtube_search', aur gana/movie ka naam 'app_package' mein bhejo.
-        8. Memory: If user asks you to remember something, use 'save_to_memory'.
-        9. Realtime Data - Time: {live_time}"""
+        1. Notifications: "message aaya hai?" -> 'read_notifications'.
+        2. Screen Reading: "screen par kya likha hai", "padh kar sunao" -> 'read_screen'.
+        3. Alarms & Timers: "alarm lagao 6 baje ka" -> 'set_alarm', pass '06:00' in app_package. "10 minute ka timer" -> 'set_timer', pass '10' in app_package.
+        4. UI Clicks: "send dabao" -> 'click_button', pass button text in 'app_package'.
+        5. Navigation: "back aao" -> 'system_nav' with 'back'.
+        6. Typing: "yeh type karo [text]" -> 'direct_type', pass text in 'app_package'.
+        7. Calls/Msgs: "mummy ko call lagao" -> use 'communicate' tool.
+        8. Chat Reset: "new chat" -> 'clear_chat'.
+        9. YouTube: "baaghi 4 lagao" -> 'youtube_search', aur movie ka naam 'app_package' mein bhejo.
+        10. Realtime Data - Time: {live_time}"""
         
         router_messages = [{"role": "system", "content": router_system_prompt}, {"role": "user", "content": request.message}]
         
@@ -209,12 +209,7 @@ async def chat_with_saarthi(request: ChatRequest):
 
         persona_rules = """
         PERSONA RULES:
-        - Teacher Mode: Explain simply with examples.
-        - Doctor Mode: Ask symptoms, suggest home remedies.
-        - Master Chef Mode: Give step-by-step recipes.
-        - Bhav-Tau Mode: Act like a smart Indian shopper.
-        - Gadar/Angry Mode: Speak with heavy attitude.
-        - Love Guru Mode: Give romantic advice.
+        - Helper Mode: Always be crisp, direct, and refer to user as Boss.
         """
         
         creative_system_content = f"{request.system_prompt}\n{persona_rules}\nREALTIME DATA:\n- Time: {live_time} {memory_context}"
@@ -248,16 +243,13 @@ async def chat_with_saarthi(request: ChatRequest):
                     except Exception as e:
                         success_msg = "Database Error."
                     creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": success_msg})
-
-                elif func_name == "navigate_to":
-                    return ChatResponse(reply="Processing request, boss.", action="OPEN_MAPS", action_data1=func_args.get("destination"))
                 
                 elif func_name == "control_device":
                     action = func_args.get("action")
                     if action == "clear_chat":
                         global_chat_history.clear()
-                        return ChatResponse(reply="Boss, purani saari baatein memory se delete kar di hain. Nayi shuruwat karte hain!", action="NONE")
-                        
+                        return ChatResponse(reply="Boss, purani saari baatein delete kar di hain. Nayi shuruwat karte hain!", action="NONE")
+                    
                     target_app = func_args.get("target_app", "NONE")
                     return ChatResponse(reply="Processing request, boss.", action="CONTROL_DEVICE", action_data1=action, action_data2=func_args.get("app_package", ""), action_data3=target_app)
                 
@@ -268,17 +260,47 @@ async def chat_with_saarthi(request: ChatRequest):
                 final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7)
                 reply_text = final_response.choices[0].message.content
                 global_chat_history.extend([{"role": "user", "content": request.message}, {"role": "assistant", "content": reply_text}])
+                last_bot_reply = reply_text
                 return ChatResponse(reply=reply_text)
 
         final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7)
         reply_text = final_response.choices[0].message.content
         
         global_chat_history.extend([{"role": "user", "content": request.message}, {"role": "assistant", "content": reply_text}])
+        last_bot_reply = reply_text
         return ChatResponse(reply=reply_text)
 
     except Exception as e:
         logger.error(f"💥 CRITICAL CHAT ERROR: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Saarthi Brain Error: {str(e)}")
+
+# ==========================================
+# 👁️ VISION AI ENDPOINT (JARVIS KI AANKHEIN)
+# ==========================================
+@app.post("/api/vision")
+async def vision_analysis(file: UploadFile = File(...), prompt: str = Form("Is photo mein kya hai? Detail mein Hindi/Hinglish mein batao.")):
+    try:
+        contents = await file.read()
+        base64_image = base64.b64encode(contents).decode('utf-8')
+        
+        # Using Groq's Vision Model
+        chat_completion = await client.chat.completions.create(
+            model="llama-3.2-11b-vision-preview",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt + " Answer like Jarvis, calling user Boss."},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                    ]
+                }
+            ],
+            temperature=0.5,
+            max_tokens=500,
+        )
+        return {"reply": chat_completion.choices[0].message.content}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Saarthi Eyes Error: {str(e)}")
 
 @app.post("/api/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
@@ -294,20 +316,14 @@ async def transcribe_audio(file: UploadFile = File(...)):
                 file=(file.filename, audio_file.read()),
                 model="whisper-large-v3",
                 language="hi",
-                prompt="Haan boss, bataiye. Main bilkul theek hoon. Ignore ALL background noise, TV sounds, or secondary voices. Transcribe strictly the primary speaker's command.", 
+                prompt="Haan boss, bataiye. Main bilkul theek hoon. Ignore ALL background noise.", 
                 response_format="json"
             )
         
         os.remove(temp_file_path)
         
-        # 🚀 WHISPER HALLUCINATION FILTER
         raw_text = transcription.text.strip()
-        hallucinations = [
-            "Thank you for watching.", "Thank you for watching", "Thanks for watching.", 
-            "Thanks for watching", "Thank you.", "Thank you", "Subscribe", 
-            "Please subscribe", "watching.", "subscribe to my channel"
-        ]
-        
+        hallucinations = ["Thank you for watching.", "Thanks for watching", "Thank you.", "Subscribe", "Please subscribe", "watching."]
         for bad_word in hallucinations:
             raw_text = re.sub(re.escape(bad_word), "", raw_text, flags=re.IGNORECASE).strip()
             
