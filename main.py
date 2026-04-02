@@ -146,10 +146,10 @@ saarthi_tools = [
                         "type": "string", 
                         "enum": ["open_app", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "close_app", "volume_up", "volume_down", "volume_mute", "volume_unmute", "youtube_search", "brightness_up", "brightness_down", "bluetooth_settings", "volume_silent", "volume_ring", "auto_rotate_on", "auto_rotate_off", "open_calculator", "accept_call", "reject_call", "open_camera", "open_video_camera", "open_audio_recorder", "copy_to_clipboard", "direct_type", "click_button", "system_nav", "read_notifications", "clear_chat"]
                     },
-                    "app_package": {
-                        "type": "string", 
-                        "description": "App name for 'open_app'. Text for 'direct_type'. Button name (e.g., 'Send', 'Delete') for 'click_button'. Navigation ('home', 'back', 'recents') for 'system_nav'."
-                    },
+                   "app_package": {
+    "type": "string", 
+    "description": "App name for 'open_app'. Text for 'direct_type'. Button name for 'click_button'. SEARCH QUERY (e.g. 'Baaghi 4 movie') for 'youtube_search'. Navigation for 'system_nav'."
+},
                     "target_app": {
                         "type": "string",
                         "description": "If user says 'type X in WhatsApp', put 'WhatsApp' here. Otherwise leave empty."
@@ -188,7 +188,7 @@ async def chat_with_saarthi(request: ChatRequest):
         memory_context = f"\n[JARVIS PERMANENT CLOUD MEMORY:\n{cloud_memory}]\n[LIVE ANDROID GPS/LOCATION: {request.android_memory}]"
         
         router_system_prompt = f"""You are a smart, silent tool-routing AI. AUTO-CORRECT spelling internally and map to the correct tool. NEVER use XML tags.
-        INTENT GUIDE:
+       INTENT GUIDE:
         1. Notifications: "koi message aaya hai?", "whatsapp read karo" -> 'control_device' -> 'read_notifications'.
         2. UI Clicks: "send dabao", "delete par click karo" -> 'control_device' -> 'click_button', pass button text in 'app_package'.
         3. Navigation: "back aao" -> 'control_device' -> 'system_nav' with 'back'. "home par jao" -> 'system_nav' with 'home'.
@@ -196,7 +196,8 @@ async def chat_with_saarthi(request: ChatRequest):
         5. Calls & Media: 'accept_call', 'reject_call', 'open_camera', 'open_video_camera', 'open_audio_recorder'.
         6. Chat Reset: "new chat", "purani baat bhul jao" -> 'control_device' -> 'clear_chat'.
         7. Memory: If user asks you to remember something, use 'save_to_memory'.
-        8. Realtime Data - Time: {live_time}"""
+        8. YouTube: "baaghi 4 lagao", "song play karo" -> 'control_device' -> 'youtube_search', aur gana/movie ka naam 'app_package' mein bhejo.
+        9. Realtime Data - Time: {live_time}
         
         router_messages = [{"role": "system", "content": router_system_prompt}, {"role": "user", "content": request.message}]
         
