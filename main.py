@@ -12,16 +12,16 @@ from groq import AsyncGroq
 from dotenv import load_dotenv
 from duckduckgo_search import DDGS 
 from pymongo import MongoClient
-import certifi  # 🚀 SSL Error Fix
+import certifi
 
 # Logs Setup
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(_name_)
 
 load_dotenv()
 
-# Version Updated: Omnipotent Master + SSL Fix + Whisper Filter
-app = FastAPI(title="Saarthi AI Core", version="26.3.0") 
+# Version Updated: YouTube Search Fix + SSL Fix + Whisper Filter
+app = FastAPI(title="Saarthi AI Core", version="26.4.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -36,7 +36,6 @@ WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 # ==========================================
 MONGO_URI = "mongodb+srv://favouritegamer192_db_user:pjt6UStm6rB3ekEv@saarthi.sfsuxij.mongodb.net/?appName=Saarthi"
 try:
-    # 🚀 tlsCAFile=certifi.where() add kiya gaya hai taaki Cloud SSL Error na aaye
     mongo_client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
     db = mongo_client["saarthi_db"]
     memory_col = db["permanent_memory"]
@@ -61,10 +60,10 @@ class ChatRequest(BaseModel):
     message: str
     system_prompt: str = """You are Saarthi (Jarvis), an ultra-intelligent, highly empathetic AI assistant.
     CRITICAL RULES:
-    1. LANGUAGE & TRANSLATOR: Converse naturally in 'Hinglish' (Hindi words in English alphabet). NEVER use Devanagari or Urdu. IF the user asks you to translate something, act as a Real-Time Translator and provide the exact translation in Hinglish.
-    2. AUTO-CORRECT: The voice-to-text might send you misspelled or broken words. Use your High IQ to auto-correct the user's intent internally before responding.
+    1. LANGUAGE & TRANSLATOR: Converse naturally in 'Hinglish' (Hindi words in English alphabet). NEVER use Devanagari or Urdu.
+    2. AUTO-CORRECT: Use your High IQ to auto-correct the user's intent internally before responding.
     3. IQ & EQ: You have an IQ of 250+. Act as a friendly companion, a Love Guru, or a wise counselor. Address the user as 'Boss'.
-    4. VOICE FOCUS: The user's voice is the ONLY authority. Ignore background noise. Focus ONLY on the primary speaker.
+    4. VOICE FOCUS: The user's voice is the ONLY authority. Focus ONLY on the primary speaker.
     5. TONE: Keep your responses highly accurate, natural, crisp, short, and human-like."""
     android_memory: str = "" 
 
@@ -77,7 +76,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (V26.3: Omnipotent Master + SSL Fix Active)!"}
+    return {"status": "🟢 Saarthi AI is Online (V26.4: YouTube Fix & No Syntax Errors)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
@@ -106,7 +105,7 @@ saarthi_tools = [
         "type": "function",
         "function": {
             "name": "perform_web_search",
-            "description": "Search the internet for real-time information, latest news, prices, or anything you don't know.",
+            "description": "Search the internet for real-time information.",
             "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}
         }
     },
@@ -114,7 +113,7 @@ saarthi_tools = [
         "type": "function",
         "function": {
             "name": "get_live_weather",
-            "description": "Fetch real-time weather and temperature for a city.",
+            "description": "Fetch real-time weather.",
             "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}
         }
     },
@@ -130,7 +129,7 @@ saarthi_tools = [
         "type": "function",
         "function": {
             "name": "save_to_memory",
-            "description": "Save important user preferences, locations, or facts permanently to the Cloud Brain.",
+            "description": "Save important user preferences permanently to the Cloud Brain.",
             "parameters": {"type": "object", "properties": {"info_key": {"type": "string"}, "info_value": {"type": "string"}}, "required": ["info_key", "info_value"]}
         }
     },
@@ -138,7 +137,7 @@ saarthi_tools = [
         "type": "function",
         "function": {
             "name": "control_device",
-            "description": "Control the Android phone's hardware, media, apps, UI buttons, and read notifications.",
+            "description": "Control the Android phone's hardware, media, apps, and UI.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -146,10 +145,10 @@ saarthi_tools = [
                         "type": "string", 
                         "enum": ["open_app", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "close_app", "volume_up", "volume_down", "volume_mute", "volume_unmute", "youtube_search", "brightness_up", "brightness_down", "bluetooth_settings", "volume_silent", "volume_ring", "auto_rotate_on", "auto_rotate_off", "open_calculator", "accept_call", "reject_call", "open_camera", "open_video_camera", "open_audio_recorder", "copy_to_clipboard", "direct_type", "click_button", "system_nav", "read_notifications", "clear_chat"]
                     },
-                   "app_package": {
-    "type": "string", 
-    "description": "App name for 'open_app'. Text for 'direct_type'. Button name for 'click_button'. SEARCH QUERY (e.g. 'Baaghi 4 movie') for 'youtube_search'. Navigation for 'system_nav'."
-},
+                    "app_package": {
+                        "type": "string", 
+                        "description": "App name for 'open_app'. Button name for 'click_button'. Search query (e.g. 'Baaghi 4 movie') for 'youtube_search'."
+                    },
                     "target_app": {
                         "type": "string",
                         "description": "If user says 'type X in WhatsApp', put 'WhatsApp' here. Otherwise leave empty."
@@ -188,16 +187,16 @@ async def chat_with_saarthi(request: ChatRequest):
         memory_context = f"\n[JARVIS PERMANENT CLOUD MEMORY:\n{cloud_memory}]\n[LIVE ANDROID GPS/LOCATION: {request.android_memory}]"
         
         router_system_prompt = f"""You are a smart, silent tool-routing AI. AUTO-CORRECT spelling internally and map to the correct tool. NEVER use XML tags.
-       INTENT GUIDE:
-        1. Notifications: "koi message aaya hai?", "whatsapp read karo" -> 'control_device' -> 'read_notifications'.
-        2. UI Clicks: "send dabao", "delete par click karo" -> 'control_device' -> 'click_button', pass button text in 'app_package'.
-        3. Navigation: "back aao" -> 'control_device' -> 'system_nav' with 'back'. "home par jao" -> 'system_nav' with 'home'.
-        4. Typing: "yeh type karo [text]" -> 'control_device' -> 'direct_type', pass text in 'app_package'.
-        5. Calls & Media: 'accept_call', 'reject_call', 'open_camera', 'open_video_camera', 'open_audio_recorder'.
-        6. Chat Reset: "new chat", "purani baat bhul jao" -> 'control_device' -> 'clear_chat'.
-        7. Memory: If user asks you to remember something, use 'save_to_memory'.
-        8. YouTube: "baaghi 4 lagao", "song play karo" -> 'control_device' -> 'youtube_search', aur gana/movie ka naam 'app_package' mein bhejo.
-        9. Realtime Data - Time: {live_time}
+        INTENT GUIDE:
+        1. Notifications: "koi message aaya hai?" -> 'read_notifications'.
+        2. UI Clicks: "send dabao" -> 'click_button', pass button text in 'app_package'.
+        3. Navigation: "back aao" -> 'system_nav' with 'back'.
+        4. Typing: "yeh type karo [text]" -> 'direct_type', pass text in 'app_package'.
+        5. Calls & Media: 'accept_call', 'reject_call', 'open_camera'.
+        6. Chat Reset: "new chat", "purani baat bhul jao" -> 'clear_chat'.
+        7. YouTube: "baaghi 4 lagao", "song play karo" -> 'youtube_search', aur gana/movie ka naam 'app_package' mein bhejo.
+        8. Memory: If user asks you to remember something, use 'save_to_memory'.
+        9. Realtime Data - Time: {live_time}"""
         
         router_messages = [{"role": "system", "content": router_system_prompt}, {"role": "user", "content": request.message}]
         
@@ -209,14 +208,13 @@ async def chat_with_saarthi(request: ChatRequest):
         tool_calls = response_message.tool_calls
 
         persona_rules = """
-        PERSONA RULES (Adopt completely if requested by the user):
+        PERSONA RULES:
         - Teacher Mode: Explain simply with examples.
-        - Doctor Mode: Ask symptoms, suggest home remedies, but advise seeing a real doctor.
-        - Master Chef Mode: Ask for ingredients, give step-by-step recipes, wait for user to say "next step".
-        - Bhav-Tau (Bargaining) Mode: Give solid tips on how to reduce price, act like a smart Indian shopper.
-        - Gadar/Angry Mode: Speak with heavy attitude, aggressive and dramatic tone.
-        - Love Guru Mode: Give romantic, poetic, and deep relationship advice.
-        - Helper/Engineering Mode: Give practical, technical, and precise step-by-step solutions.
+        - Doctor Mode: Ask symptoms, suggest home remedies.
+        - Master Chef Mode: Give step-by-step recipes.
+        - Bhav-Tau Mode: Act like a smart Indian shopper.
+        - Gadar/Angry Mode: Speak with heavy attitude.
+        - Love Guru Mode: Give romantic advice.
         """
         
         creative_system_content = f"{request.system_prompt}\n{persona_rules}\nREALTIME DATA:\n- Time: {live_time} {memory_context}"
@@ -248,7 +246,7 @@ async def chat_with_saarthi(request: ChatRequest):
                         memory_col.update_one({"key": k}, {"$set": {"value": v}}, upsert=True)
                         success_msg = f"Cloud Brain Updated: '{k}' is now '{v}'."
                     except Exception as e:
-                        success_msg = f"Database Error."
+                        success_msg = "Database Error."
                     creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": success_msg})
 
                 elif func_name == "navigate_to":
@@ -276,8 +274,6 @@ async def chat_with_saarthi(request: ChatRequest):
         reply_text = final_response.choices[0].message.content
         
         global_chat_history.extend([{"role": "user", "content": request.message}, {"role": "assistant", "content": reply_text}])
-        
-        logger.info("✅ Success from Groq Chat (70B)")
         return ChatResponse(reply=reply_text)
 
     except Exception as e:
@@ -304,7 +300,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
         
         os.remove(temp_file_path)
         
-        # 🚀 FIX: WHISPER HALLUCINATION FILTER
+        # 🚀 WHISPER HALLUCINATION FILTER
         raw_text = transcription.text.strip()
         hallucinations = [
             "Thank you for watching.", "Thank you for watching", "Thanks for watching.", 
