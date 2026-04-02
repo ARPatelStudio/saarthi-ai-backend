@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version Updated: Router upgraded to 70B, Parallel Tools Disabled & Media Rules Enhanced
-app = FastAPI(title="Saarthi AI Core", version="27.3.0") 
+# Version Updated: Added "Ghost Eyes" scan triggers
+app = FastAPI(title="Saarthi AI Core", version="27.4.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -76,7 +76,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (V27.3.0: Mega Media & Router Upgraded)!"}
+    return {"status": "🟢 Saarthi AI is Online (V27.4.0: Ghost Eyes Scan Triggers Active)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
@@ -128,7 +128,7 @@ saarthi_tools = [
         "type": "function",
         "function": {
             "name": "control_device",
-            "description": "Control hardware, apps, UI, Alarms, Timers, Media and Screen Reading.",
+            "description": "Control hardware, apps, UI, Alarms, Timers, Media, Screen Reading, and Vision Scanning.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -183,7 +183,7 @@ async def chat_with_saarthi(request: ChatRequest):
         cloud_memory = get_cloud_memory()
         memory_context = f"\n[JARVIS PERMANENT CLOUD MEMORY:\n{cloud_memory}]\n[LIVE ANDROID GPS/LOCATION: {request.android_memory}]"
         
-        # 🚀 FIX: Extremely Strict Router Prompt for Media & YouTube!
+        # 🚀 FIX: Added trigger words for Vision AI!
         router_system_prompt = f"""You are a smart, silent tool-routing AI. NEVER use XML tags.
         CRITICAL RULE: YOU MUST CHOOSE ONLY ONE SINGLE TOOL CALL. DO NOT CHAIN TOOLS.
 
@@ -196,13 +196,13 @@ async def chat_with_saarthi(request: ChatRequest):
         6. Typing: "yeh type karo [text]" -> 'direct_type'.
         7. Calls/Msgs: "mummy ko call lagao" -> 'communicate'.
         8. Chat Reset: "new chat" -> 'clear_chat'.
-        9. YouTube/Music/Movies: Koi bhi gaana, movie, ya video "chalao", "lagao", "play karo", ya "search karo" -> 'youtube_search'. Pass EXACT query in 'app_package' (e.g., "Baaghi 4 song", "KGF movie"). CRITICAL: DO NOT use 'open_app'.
+        9. YouTube/Music/Movies: Koi bhi gaana, movie, ya video "chalao", "lagao", "play karo", ya "search karo" -> 'youtube_search'. Pass EXACT query in 'app_package'. CRITICAL: DO NOT use 'open_app'.
         10. Media Control: "roko", "pause karo", "play karo", "chalu karo", "band karo" -> 'media_pause', 'media_play', or 'media_stop'.
-        11. Realtime Data - Time: {live_time}"""
+        11. Vision AI (Ghost Eyes): Agar user bole "photo kheencho", "samne dekho", "eyes open", "scan karo", "scanning" -> 'open_camera'.
+        12. Realtime Data - Time: {live_time}"""
         
         router_messages = [{"role": "system", "content": router_system_prompt}, {"role": "user", "content": request.message}]
         
-        # 🚀 FIX: Model upgraded to 70B & parallel_tool_calls disabled to stop Error 400!
         chat_completion_router = await client.chat.completions.create(
             messages=router_messages, 
             model="llama-3.3-70b-versatile", 
@@ -210,7 +210,7 @@ async def chat_with_saarthi(request: ChatRequest):
             tool_choice="auto", 
             temperature=0.0, 
             max_tokens=1024,
-            parallel_tool_calls=False # Yeh line AI ko do tools ek sath use karne se rokegi
+            parallel_tool_calls=False
         )
         
         response_message = chat_completion_router.choices[0].message
@@ -230,7 +230,6 @@ async def chat_with_saarthi(request: ChatRequest):
         creative_messages.append({"role": "user", "content": request.message})
 
         if tool_calls:
-            # We strictly take only the FIRST tool call as an extra safety measure
             tool_call = tool_calls[0]
             
             creative_messages.append(response_message)
