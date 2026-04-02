@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version Updated: YouTube Strict Search Fix & Tool Chaining Error Fix
-app = FastAPI(title="Saarthi AI Core", version="27.2.0") 
+# Version Updated: Router upgraded to 70B, Parallel Tools Disabled & Media Rules Enhanced
+app = FastAPI(title="Saarthi AI Core", version="27.3.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -76,7 +76,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (V27.2: YouTube Fix & Media Controls Active)!"}
+    return {"status": "🟢 Saarthi AI is Online (V27.3.0: Mega Media & Router Upgraded)!"}
 
 # ==========================================
 # ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
@@ -128,7 +128,7 @@ saarthi_tools = [
         "type": "function",
         "function": {
             "name": "control_device",
-            "description": "Control hardware, apps, UI, Alarms, Timers, and Screen Reading.",
+            "description": "Control hardware, apps, UI, Alarms, Timers, Media and Screen Reading.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -138,7 +138,7 @@ saarthi_tools = [
                     },
                     "app_package": {
                         "type": "string", 
-                        "description": "App name for 'open_app'. EXACT SEARCH QUERY for 'youtube_search' (e.g. 'Baaghi 4 songs' or 'KGF movie'). Time for 'set_alarm' (e.g. '06:00'). Minutes for 'set_timer' (e.g. '10')."
+                        "description": "App name for 'open_app'. EXACT SEARCH QUERY for 'youtube_search' (e.g. 'Baaghi 4 songs', 'KGF movie'). Time for 'set_alarm' (e.g. '06:00'). Minutes for 'set_timer' (e.g. '10')."
                     },
                     "target_app": {
                         "type": "string",
@@ -183,25 +183,34 @@ async def chat_with_saarthi(request: ChatRequest):
         cloud_memory = get_cloud_memory()
         memory_context = f"\n[JARVIS PERMANENT CLOUD MEMORY:\n{cloud_memory}]\n[LIVE ANDROID GPS/LOCATION: {request.android_memory}]"
         
-        # 🚀 FIX: Error 400 Fix. Strict Tool Usage & Pause/Play added.
-        router_system_prompt = f"""You are a smart, silent tool-routing AI. NEVER use XML tags. CRITICAL: ONLY CALL ONE TOOL AT A TIME.
+        # 🚀 FIX: Extremely Strict Router Prompt for Media & YouTube!
+        router_system_prompt = f"""You are a smart, silent tool-routing AI. NEVER use XML tags.
+        CRITICAL RULE: YOU MUST CHOOSE ONLY ONE SINGLE TOOL CALL. DO NOT CHAIN TOOLS.
+
         INTENT GUIDE:
         1. Notifications: "message aaya hai?" -> 'read_notifications'.
         2. Screen Reading: "screen par kya likha hai" -> 'read_screen'.
-        3. Alarms/Timers: "alarm lagao 6 baje ka" -> 'set_alarm' with '06:00'. "10 minute ka timer" -> 'set_timer' with '10'.
-        4. UI Clicks: "send dabao" -> 'click_button', pass button text.
+        3. Alarms/Timers: "alarm lagao 6 baje ka" -> 'set_alarm'. "10 minute ka timer" -> 'set_timer'.
+        4. UI Clicks: "send dabao" -> 'click_button'.
         5. Navigation: "back aao" -> 'system_nav' with 'back'.
-        6. Typing: "yeh type karo [text]" -> 'direct_type', pass text in 'app_package'.
-        7. Calls/Msgs: "mummy ko call lagao" -> use 'communicate' tool.
+        6. Typing: "yeh type karo [text]" -> 'direct_type'.
+        7. Calls/Msgs: "mummy ko call lagao" -> 'communicate'.
         8. Chat Reset: "new chat" -> 'clear_chat'.
-        9. YouTube Search & Play: "baaghi 4 lagao", "[Movie] ka gana", "search [title]", "play [song]" -> 'youtube_search'. Pass EXACT query in 'app_package'. DO NOT call 'open_app'.
-        10. Media Control (Pause/Play/Stop): "video roko", "pause karo", "chalu karo" -> 'media_pause' or 'media_play'.
+        9. YouTube/Music/Movies: Koi bhi gaana, movie, ya video "chalao", "lagao", "play karo", ya "search karo" -> 'youtube_search'. Pass EXACT query in 'app_package' (e.g., "Baaghi 4 song", "KGF movie"). CRITICAL: DO NOT use 'open_app'.
+        10. Media Control: "roko", "pause karo", "play karo", "chalu karo", "band karo" -> 'media_pause', 'media_play', or 'media_stop'.
         11. Realtime Data - Time: {live_time}"""
         
         router_messages = [{"role": "system", "content": router_system_prompt}, {"role": "user", "content": request.message}]
         
+        # 🚀 FIX: Model upgraded to 70B & parallel_tool_calls disabled to stop Error 400!
         chat_completion_router = await client.chat.completions.create(
-            messages=router_messages, model="llama-3.1-8b-instant", tools=saarthi_tools, tool_choice="auto", temperature=0.0, max_tokens=1024,
+            messages=router_messages, 
+            model="llama-3.3-70b-versatile", 
+            tools=saarthi_tools, 
+            tool_choice="auto", 
+            temperature=0.0, 
+            max_tokens=1024,
+            parallel_tool_calls=False # Yeh line AI ko do tools ek sath use karne se rokegi
         )
         
         response_message = chat_completion_router.choices[0].message
@@ -221,7 +230,7 @@ async def chat_with_saarthi(request: ChatRequest):
         creative_messages.append({"role": "user", "content": request.message})
 
         if tool_calls:
-            # We take only the FIRST tool call to prevent chaining errors
+            # We strictly take only the FIRST tool call as an extra safety measure
             tool_call = tool_calls[0]
             
             creative_messages.append(response_message)
