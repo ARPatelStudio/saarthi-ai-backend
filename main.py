@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version Updated: Added "Ghost Eyes" scan triggers
-app = FastAPI(title="Saarthi AI Core", version="27.4.0") 
+# Version Updated: Visible Scanner UI vs Ghost Camera logic added
+app = FastAPI(title="Saarthi AI Core", version="27.7.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -32,9 +32,6 @@ if not api_key:
 client = AsyncGroq(api_key=api_key)
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
-# ==========================================
-# 🧠 MONGODB CLOUD BRAIN SETUP
-# ==========================================
 MONGO_URI = "mongodb+srv://favouritegamer192_db_user:pjt6UStm6rB3ekEv@saarthi.sfsuxij.mongodb.net/?appName=Saarthi"
 try:
     mongo_client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
@@ -53,18 +50,12 @@ def get_cloud_memory():
     except Exception as e:
         return "Database error."
 
-# 🚀 CONTINUOUS CHAT MEMORY
 global_chat_history = []
 last_bot_reply = "" 
 
 class ChatRequest(BaseModel):
     message: str
-    system_prompt: str = """You are Saarthi (Jarvis), an ultra-intelligent, highly empathetic AI assistant.
-    CRITICAL RULES:
-    1. LANGUAGE & TRANSLATOR: Converse naturally in 'Hinglish'. NEVER use Devanagari.
-    2. AUTO-CORRECT: Use High IQ to auto-correct broken voice-to-text.
-    3. IQ & EQ: IQ of 250+. Address the user as 'Boss'.
-    4. VOICE FOCUS: The user's voice is the ONLY authority."""
+    system_prompt: str = """You are Saarthi (Jarvis), an ultra-intelligent, highly empathetic AI assistant. Converse in Hinglish."""
     android_memory: str = "" 
 
 class ChatResponse(BaseModel):
@@ -76,11 +67,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (V27.4.0: Ghost Eyes Scan Triggers Active)!"}
-
-# ==========================================
-# ⚙️ SAARTHI'S NATIVE TOOLS (Powers)
-# ==========================================
+    return {"status": "🟢 Saarthi AI is Online (V27.7.0: Dual Camera Mode Active)!"}
 
 def perform_web_search(query: str):
     try:
@@ -104,7 +91,7 @@ saarthi_tools = [
         "type": "function",
         "function": {
             "name": "perform_web_search",
-            "description": "Search the internet for real-time information.",
+            "description": "Search the internet.",
             "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}
         }
     },
@@ -119,30 +106,18 @@ saarthi_tools = [
     {
         "type": "function",
         "function": {
-            "name": "save_to_memory",
-            "description": "Save user preferences to the Cloud Brain.",
-            "parameters": {"type": "object", "properties": {"info_key": {"type": "string"}, "info_value": {"type": "string"}}, "required": ["info_key", "info_value"]}
-        }
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "control_device",
-            "description": "Control hardware, apps, UI, Alarms, Timers, Media, Screen Reading, and Vision Scanning.",
+            "description": "Control hardware, apps, UI, Media, and Vision.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string", 
-                        "enum": ["open_app", "close_app", "youtube_search", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "volume_up", "volume_down", "volume_mute", "volume_unmute", "brightness_up", "brightness_down", "bluetooth_settings", "volume_silent", "volume_ring", "auto_rotate_on", "auto_rotate_off", "open_calculator", "accept_call", "reject_call", "open_camera", "open_video_camera", "open_audio_recorder", "copy_to_clipboard", "direct_type", "click_button", "system_nav", "read_notifications", "clear_chat", "set_alarm", "set_timer", "read_screen"]
+                        "enum": ["open_app", "close_app", "youtube_search", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "open_camera", "open_scanner", "set_alarm", "set_timer", "bluetooth_settings", "gps_settings", "quick_share", "vision_scanning", "scan_vision"]
                     },
                     "app_package": {
                         "type": "string", 
-                        "description": "App name for 'open_app'. EXACT SEARCH QUERY for 'youtube_search' (e.g. 'Baaghi 4 songs', 'KGF movie'). Time for 'set_alarm' (e.g. '06:00'). Minutes for 'set_timer' (e.g. '10')."
-                    },
-                    "target_app": {
-                        "type": "string",
-                        "description": "Target app if direct typing. Or specific context."
+                        "description": "App name, or search query."
                     }
                 },
                 "required": ["action"]
@@ -173,120 +148,77 @@ async def chat_with_saarthi(request: ChatRequest):
     global last_bot_reply
     
     if last_bot_reply and last_bot_reply.lower() in request.message.lower() and len(request.message) > 10:
-        logger.warning("Echo Detected! Ignoring self-generated speech.")
         return ChatResponse(reply="...", action="NONE") 
         
     try:
         ist_timezone = pytz.timezone('Asia/Kolkata')
         live_time = datetime.datetime.now(ist_timezone).strftime('%A, %d %B %Y, %I:%M %p')
+        memory_context = f"\n[Android GPS/Memory: {request.android_memory}]"
         
-        cloud_memory = get_cloud_memory()
-        memory_context = f"\n[JARVIS PERMANENT CLOUD MEMORY:\n{cloud_memory}]\n[LIVE ANDROID GPS/LOCATION: {request.android_memory}]"
-        
-        # 🚀 FIX: Added trigger words for Vision AI!
-        router_system_prompt = f"""You are a smart, silent tool-routing AI. NEVER use XML tags.
-        CRITICAL RULE: YOU MUST CHOOSE ONLY ONE SINGLE TOOL CALL. DO NOT CHAIN TOOLS.
-
+        router_system_prompt = f"""You are a smart tool-routing AI. Choose ONE tool.
         INTENT GUIDE:
-        1. Notifications: "message aaya hai?" -> 'read_notifications'.
-        2. Screen Reading: "screen par kya likha hai" -> 'read_screen'.
-        3. Alarms/Timers: "alarm lagao 6 baje ka" -> 'set_alarm'. "10 minute ka timer" -> 'set_timer'.
-        4. UI Clicks: "send dabao" -> 'click_button'.
-        5. Navigation: "back aao" -> 'system_nav' with 'back'.
-        6. Typing: "yeh type karo [text]" -> 'direct_type'.
-        7. Calls/Msgs: "mummy ko call lagao" -> 'communicate'.
-        8. Chat Reset: "new chat" -> 'clear_chat'.
-        9. YouTube/Music/Movies: Koi bhi gaana, movie, ya video "chalao", "lagao", "play karo", ya "search karo" -> 'youtube_search'. Pass EXACT query in 'app_package'. CRITICAL: DO NOT use 'open_app'.
-        10. Media Control: "roko", "pause karo", "play karo", "chalu karo", "band karo" -> 'media_pause', 'media_play', or 'media_stop'.
-        11. Vision AI (Ghost Eyes): Agar user bole "photo kheencho", "samne dekho", "eyes open", "scan karo", "scanning" -> 'open_camera'.
-        12. Realtime Data - Time: {live_time}"""
+        1. Bluetooth: "bluetooth on/off karo" -> 'bluetooth_settings'.
+        2. GPS/Location: "location chalu karo" -> 'gps_settings'.
+        3. Quick Share/File Share: "quick share kholo" -> 'quick_share'.
+        4. Hidden Vision (Ghost Eyes): "samne dekho", "chup chap photo lo", "eyes open" -> 'open_camera'.
+        5. Visible Vision (Scanner UI): "scanner kholo", "camera khol kar scan karo", "scanner chalu karo" -> 'open_scanner'.
+        6. YouTube: "baaghi 4 lagao" -> 'youtube_search'.
+        7. Media: "roko", "play karo" -> 'media_pause', 'media_play'.
+        """
         
         router_messages = [{"role": "system", "content": router_system_prompt}, {"role": "user", "content": request.message}]
         
         chat_completion_router = await client.chat.completions.create(
-            messages=router_messages, 
-            model="llama-3.3-70b-versatile", 
-            tools=saarthi_tools, 
-            tool_choice="auto", 
-            temperature=0.0, 
-            max_tokens=1024,
-            parallel_tool_calls=False
+            messages=router_messages, model="llama-3.3-70b-versatile", tools=saarthi_tools, tool_choice="auto", temperature=0.0, max_tokens=1024, parallel_tool_calls=False
         )
         
         response_message = chat_completion_router.choices[0].message
         tool_calls = response_message.tool_calls
 
-        persona_rules = """
-        PERSONA RULES:
-        - Helper Mode: Always be crisp, direct, and refer to user as Boss.
-        """
-        
-        creative_system_content = f"{request.system_prompt}\n{persona_rules}\nREALTIME DATA:\n- Time: {live_time} {memory_context}"
-        creative_messages = [{"role": "system", "content": creative_system_content}]
-        
-        for msg in global_chat_history[-10:]:
-            creative_messages.append(msg)
-            
-        creative_messages.append({"role": "user", "content": request.message})
+        creative_messages = [
+            {"role": "system", "content": f"{request.system_prompt}\nREALTIME DATA:\n- Time: {live_time} {memory_context}"},
+            {"role": "user", "content": request.message}
+        ]
 
         if tool_calls:
             tool_call = tool_calls[0]
-            
-            creative_messages.append(response_message)
-            
             func_name = tool_call.function.name
-            func_args = json.loads(tool_call.function.arguments)
-            
+            try: func_args = json.loads(tool_call.function.arguments)
+            except: func_args = {}
+
             if func_name == "perform_web_search":
-                web_data = perform_web_search(func_args.get("query"))
+                web_data = perform_web_search(func_args.get("query", request.message))
+                creative_messages.append(response_message)
                 creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": web_data})
+                final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7)
+                return ChatResponse(reply=final_response.choices[0].message.content)
             
             elif func_name == "get_live_weather":
-                weather_data = get_live_weather(func_args.get("location"))
+                weather_data = get_live_weather(func_args.get("location", "India"))
+                creative_messages.append(response_message)
                 creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": weather_data})
-
-            elif func_name == "save_to_memory":
-                k = func_args.get("info_key")
-                v = func_args.get("info_value")
-                try:
-                    memory_col.update_one({"key": k}, {"$set": {"value": v}}, upsert=True)
-                    success_msg = f"Cloud Brain Updated: '{k}' is now '{v}'."
-                except Exception as e:
-                    success_msg = "Database Error."
-                creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": success_msg})
+                final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7)
+                return ChatResponse(reply=final_response.choices[0].message.content)
             
             elif func_name == "control_device":
                 action = func_args.get("action")
-                if action == "clear_chat":
-                    global_chat_history.clear()
-                    return ChatResponse(reply="Boss, purani saari baatein delete kar di hain. Nayi shuruwat karte hain!", action="NONE")
-                
-                target_app = func_args.get("target_app", "NONE")
-                return ChatResponse(reply="Processing request, boss.", action="CONTROL_DEVICE", action_data1=action, action_data2=func_args.get("app_package", ""), action_data3=target_app)
+                if action in ["vision_scanning", "scan_vision"]:
+                    action = "open_scanner"
+                return ChatResponse(reply="Processing request, boss.", action="CONTROL_DEVICE", action_data1=action, action_data2=func_args.get("app_package", ""))
             
             elif func_name == "communicate":
-                return ChatResponse(reply="Processing request, boss.", action="COMMUNICATE", action_data1=func_args.get("method"), action_data2=func_args.get("contact_name"), action_data3=func_args.get("message_text", ""))
-
-            if func_name in ["perform_web_search", "get_live_weather", "save_to_memory"]:
-                final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7)
-                reply_text = final_response.choices[0].message.content
-                global_chat_history.extend([{"role": "user", "content": request.message}, {"role": "assistant", "content": reply_text}])
-                last_bot_reply = reply_text
-                return ChatResponse(reply=reply_text)
+                return ChatResponse(reply="Processing request, boss.", action="COMMUNICATE", action_data1=func_args.get("method", "call"), action_data2=func_args.get("contact_name", ""))
 
         final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7)
         reply_text = final_response.choices[0].message.content
-        
-        global_chat_history.extend([{"role": "user", "content": request.message}, {"role": "assistant", "content": reply_text}])
         last_bot_reply = reply_text
         return ChatResponse(reply=reply_text)
 
     except Exception as e:
-        logger.error(f"💥 CRITICAL CHAT ERROR: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Saarthi Brain Error: {str(e)}")
+        return ChatResponse(reply="Boss, server mein thodi technical dikkat aayi.", action="NONE")
 
 # ==========================================
-# 👁️ VISION AI ENDPOINT (JARVIS KI AANKHEIN)
+# 👁️ VISION AI ENDPOINT
 # ==========================================
 @app.post("/api/vision")
 async def vision_analysis(file: UploadFile = File(...), prompt: str = Form("Is photo mein kya hai? Detail mein Hindi/Hinglish mein batao.")):
@@ -300,17 +232,17 @@ async def vision_analysis(file: UploadFile = File(...), prompt: str = Form("Is p
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": prompt + " Answer like Jarvis, calling user Boss."},
+                        {"type": "text", "text": prompt + " Answer in short 2 lines. Start with 'Boss, mujhe dikh raha hai ki...'"},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                     ]
                 }
             ],
             temperature=0.5,
-            max_tokens=500,
+            max_tokens=300,
         )
         return {"reply": chat_completion.choices[0].message.content}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Saarthi Eyes Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
@@ -331,17 +263,17 @@ async def transcribe_audio(file: UploadFile = File(...)):
             )
         
         os.remove(temp_file_path)
-        
         raw_text = transcription.text.strip()
-        hallucinations = ["Thank you for watching.", "Thanks for watching", "Thank you.", "Subscribe", "Please subscribe", "watching."]
+        
+        hallucinations = ["Thank you for watching.", "Thanks for watching", "Thank you.", "Subscribe", "watching.", "didn't catch that", "Can you repeat"]
         for bad_word in hallucinations:
             raw_text = re.sub(re.escape(bad_word), "", raw_text, flags=re.IGNORECASE).strip()
             
-        if not raw_text:
+        if not raw_text or len(raw_text) < 3:
             return {"text": "[error]"}
             
         return {"text": raw_text}
         
     except Exception as e:
         if os.path.exists(temp_file_path): os.remove(temp_file_path)
-        raise HTTPException(status_code=500, detail=f"Saarthi Ears Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
