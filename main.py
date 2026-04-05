@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version Updated: Volume Controls Added without changing any previous logic
-app = FastAPI(title="Saarthi AI Core", version="27.8.0") 
+# Version Updated: Precise Volume Controls (Percentage & Full Volume) Added
+app = FastAPI(title="Saarthi AI Core", version="28.2.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -67,7 +67,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (V27.8.0: Dual Camera & Volume Mode Active)!"}
+    return {"status": "🟢 Saarthi AI is Online (V28.2.0: Precise Volume Mode Active)!"}
 
 def perform_web_search(query: str):
     try:
@@ -113,12 +113,13 @@ saarthi_tools = [
                 "properties": {
                     "action": {
                         "type": "string", 
-                        # 🚀 FIX: Volume commands yahan add kiye gaye hain
-                        "enum": ["open_app", "close_app", "youtube_search", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "open_camera", "open_scanner", "set_alarm", "set_timer", "bluetooth_settings", "gps_settings", "quick_share", "vision_scanning", "scan_vision", "volume_up", "volume_down", "volume_mute", "volume_unmute"]
+                        # 🚀 FIX: 'volume_set' yahan add kiya gaya hai percent control ke liye
+                        "enum": ["open_app", "close_app", "youtube_search", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "open_camera", "open_scanner", "set_alarm", "set_timer", "bluetooth_settings", "gps_settings", "quick_share", "vision_scanning", "scan_vision", "volume_up", "volume_down", "volume_mute", "volume_unmute", "volume_set"]
                     },
                     "app_package": {
                         "type": "string", 
-                        "description": "App name, or search query."
+                        # 🚀 FIX: Ab app_package volume ka percentage (number) bhi receive karega
+                        "description": "App name, search query, OR volume percentage (e.g., '50', '100')."
                     }
                 },
                 "required": ["action"]
@@ -156,17 +157,18 @@ async def chat_with_saarthi(request: ChatRequest):
         live_time = datetime.datetime.now(ist_timezone).strftime('%A, %d %B %Y, %I:%M %p')
         memory_context = f"\n[Android GPS/Memory: {request.android_memory}]"
         
-        # 🚀 FIX: AI ko Volume Control samajhna sikhaya gaya hai
+        # 🚀 FIX: AI ko Percentage Volume aur Full Volume ki training di gayi hai
         router_system_prompt = f"""You are a smart tool-routing AI. Choose ONE tool.
         INTENT GUIDE:
-        1. Volume Controls: "volume mute kar do" -> 'volume_mute'. "volume unmute karo" -> 'volume_unmute'. "volume badhao/up" -> 'volume_up'. "volume kam karo/down" -> 'volume_down'.
-        2. Bluetooth: "bluetooth on/off karo" -> 'bluetooth_settings'.
-        3. GPS/Location: "location chalu karo" -> 'gps_settings'.
-        4. Quick Share/File Share: "quick share kholo" -> 'quick_share'.
-        5. Hidden Vision (Ghost Eyes): "samne dekho", "chup chap photo lo", "eyes open" -> 'open_camera'.
-        6. Visible Vision (Scanner UI): "scanner kholo", "camera khol kar scan karo", "scanner chalu karo" -> 'open_scanner'.
-        7. YouTube: "baaghi 4 lagao" -> 'youtube_search'.
-        8. Media: "roko", "play karo" -> 'media_pause', 'media_play'.
+        1. Volume Percentage: "volume 50% kar do", "full volume" -> 'volume_set' with app_package="50" (or "100" for full).
+        2. General Volume: "volume mute kar do", "volume up" -> 'volume_mute', 'volume_up'. "volume kam karo" -> 'volume_down'. "volume unmute karo" -> 'volume_unmute'.
+        3. Bluetooth: "bluetooth on/off karo" -> 'bluetooth_settings'.
+        4. GPS/Location: "location chalu karo" -> 'gps_settings'.
+        5. Quick Share/File Share: "quick share kholo" -> 'quick_share'.
+        6. Hidden Vision (Ghost Eyes): "samne dekho", "chup chap photo lo", "eyes open" -> 'open_camera'.
+        7. Visible Vision (Scanner UI): "scanner kholo", "camera khol kar scan karo", "scanner chalu karo" -> 'open_scanner'.
+        8. YouTube: "baaghi 4 lagao" -> 'youtube_search'.
+        9. Media: "roko", "play karo" -> 'media_pause', 'media_play'.
         """
         
         router_messages = [{"role": "system", "content": router_system_prompt}, {"role": "user", "content": request.message}]
