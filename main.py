@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version Updated: Precise Volume Controls (Percentage & Full Volume) Added
-app = FastAPI(title="Saarthi AI Core", version="28.2.0") 
+# Version Updated: Lightning Fast Router, Precise Volume Controls (Percentage & Full Volume), and Avatar controls
+app = FastAPI(title="Saarthi AI Core", version="29.1.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -67,11 +67,12 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (V28.2.0: Precise Volume Mode Active)!"}
+    return {"status": "🟢 Saarthi AI is Online (V29.1.0: Lightning Speed, Avatar & Precise Volume Mode Active)!"}
 
 def perform_web_search(query: str):
     try:
-        results = DDGS().text(query, max_results=3)
+        # 🚀 SPEED FIX: Max results 2 kar diye taaki searching instantly ho
+        results = DDGS().text(query, max_results=2)
         if not results: return "Web par kuch nahi mila boss."
         summary = "\n".join([f"- {r['title']}: {r['body']}" for r in results])
         return f"Live Web Data for '{query}':\n{summary}"
@@ -113,12 +114,10 @@ saarthi_tools = [
                 "properties": {
                     "action": {
                         "type": "string", 
-                        # 🚀 FIX: 'volume_set' yahan add kiya gaya hai percent control ke liye
-                        "enum": ["open_app", "close_app", "youtube_search", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "open_camera", "open_scanner", "set_alarm", "set_timer", "bluetooth_settings", "gps_settings", "quick_share", "vision_scanning", "scan_vision", "volume_up", "volume_down", "volume_mute", "volume_unmute", "volume_set"]
+                        "enum": ["open_app", "close_app", "youtube_search", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "open_camera", "open_scanner", "set_alarm", "set_timer", "bluetooth_settings", "gps_settings", "quick_share", "vision_scanning", "scan_vision", "volume_up", "volume_down", "volume_mute", "volume_unmute", "volume_set", "open_avatar", "close_avatar"]
                     },
                     "app_package": {
                         "type": "string", 
-                        # 🚀 FIX: Ab app_package volume ka percentage (number) bhi receive karega
                         "description": "App name, search query, OR volume percentage (e.g., '50', '100')."
                     }
                 },
@@ -157,14 +156,14 @@ async def chat_with_saarthi(request: ChatRequest):
         live_time = datetime.datetime.now(ist_timezone).strftime('%A, %d %B %Y, %I:%M %p')
         memory_context = f"\n[Android GPS/Memory: {request.android_memory}]"
         
-        # 🚀 FIX: AI ko Percentage Volume aur Full Volume ki training di gayi hai
+        # 🚀 FIX: Precise Intent Guide updated with Avatar and Volume instructions
         router_system_prompt = f"""You are a smart tool-routing AI. Choose ONE tool.
         INTENT GUIDE:
-        1. Volume Percentage: "volume 50% kar do", "full volume" -> 'volume_set' with app_package="50" (or "100" for full).
-        2. General Volume: "volume mute kar do", "volume up" -> 'volume_mute', 'volume_up'. "volume kam karo" -> 'volume_down'. "volume unmute karo" -> 'volume_unmute'.
-        3. Bluetooth: "bluetooth on/off karo" -> 'bluetooth_settings'.
-        4. GPS/Location: "location chalu karo" -> 'gps_settings'.
-        5. Quick Share/File Share: "quick share kholo" -> 'quick_share'.
+        1. Avatar Mode: "samne aao", "avatar dikhao", "jarvis samne aao" -> 'open_avatar'. "wapas jao", "avatar band karo" -> 'close_avatar'.
+        2. Volume Percentage: "volume 50% kar do", "full volume" -> 'volume_set' with app_package="50" (or "100" for full).
+        3. General Volume: "volume mute kar do", "volume up" -> 'volume_mute', 'volume_up'. "volume kam karo" -> 'volume_down'. "volume unmute karo" -> 'volume_unmute'.
+        4. Apps Kholna: "[App Name] open karo", "youtube open karo" -> 'open_app'.
+        5. Bluetooth/GPS/Share: "bluetooth on", "location chalu karo", "quick share" -> 'bluetooth_settings', 'gps_settings', 'quick_share'.
         6. Hidden Vision (Ghost Eyes): "samne dekho", "chup chap photo lo", "eyes open" -> 'open_camera'.
         7. Visible Vision (Scanner UI): "scanner kholo", "camera khol kar scan karo", "scanner chalu karo" -> 'open_scanner'.
         8. YouTube: "baaghi 4 lagao" -> 'youtube_search'.
@@ -173,8 +172,15 @@ async def chat_with_saarthi(request: ChatRequest):
         
         router_messages = [{"role": "system", "content": router_system_prompt}, {"role": "user", "content": request.message}]
         
+        # 🚀 SPEED FIX: 8b model for instant action routing
         chat_completion_router = await client.chat.completions.create(
-            messages=router_messages, model="llama-3.3-70b-versatile", tools=saarthi_tools, tool_choice="auto", temperature=0.0, max_tokens=1024, parallel_tool_calls=False
+            messages=router_messages, 
+            model="llama-3.1-8b-instant", 
+            tools=saarthi_tools, 
+            tool_choice="auto", 
+            temperature=0.0, 
+            max_tokens=512, 
+            parallel_tool_calls=False
         )
         
         response_message = chat_completion_router.choices[0].message
@@ -195,6 +201,7 @@ async def chat_with_saarthi(request: ChatRequest):
                 web_data = perform_web_search(func_args.get("query", request.message))
                 creative_messages.append(response_message)
                 creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": web_data})
+                # If searching, use the creative brain
                 final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7)
                 return ChatResponse(reply=final_response.choices[0].message.content)
             
@@ -202,6 +209,7 @@ async def chat_with_saarthi(request: ChatRequest):
                 weather_data = get_live_weather(func_args.get("location", "India"))
                 creative_messages.append(response_message)
                 creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": weather_data})
+                # If weather, use the creative brain
                 final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7)
                 return ChatResponse(reply=final_response.choices[0].message.content)
             
@@ -209,11 +217,19 @@ async def chat_with_saarthi(request: ChatRequest):
                 action = func_args.get("action")
                 if action in ["vision_scanning", "scan_vision"]:
                     action = "open_scanner"
+                
+                # 🚀 AVATAR INTERCEPTOR: Instant hardcoded reply, bypasses the slow 70B model
+                if action == "open_avatar":
+                    return ChatResponse(reply="Aa raha hoon boss!", action="CONTROL_DEVICE", action_data1="open_avatar")
+                elif action == "close_avatar":
+                    return ChatResponse(reply="Main wapas Chat Screen par aa gaya hoon boss.", action="CONTROL_DEVICE", action_data1="close_avatar")
+
                 return ChatResponse(reply="Processing request, boss.", action="CONTROL_DEVICE", action_data1=action, action_data2=func_args.get("app_package", ""))
             
             elif func_name == "communicate":
                 return ChatResponse(reply="Processing request, boss.", action="COMMUNICATE", action_data1=func_args.get("method", "call"), action_data2=func_args.get("contact_name", ""))
 
+        # 🚀 FALLBACK: If no tool was called, use the 70B brain for conversational reply
         final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7)
         reply_text = final_response.choices[0].message.content
         last_bot_reply = reply_text
