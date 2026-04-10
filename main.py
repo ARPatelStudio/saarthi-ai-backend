@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version Updated: Lightning Fast Router, Precise Volume Controls (Percentage & Full Volume), and Avatar controls
-app = FastAPI(title="Saarthi AI Core", version="29.1.0") 
+# Version Updated: Realistic Video Avatar Mode + Background Tracker
+app = FastAPI(title="Saarthi AI Core", version="31.0.0") 
 
 # API Keys
 api_key = os.getenv("GROQ_API_KEY")
@@ -32,23 +32,17 @@ if not api_key:
 client = AsyncGroq(api_key=api_key)
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
+# 🚀 DATABASE SETUP
 MONGO_URI = "mongodb+srv://favouritegamer192_db_user:pjt6UStm6rB3ekEv@saarthi.sfsuxij.mongodb.net/?appName=Saarthi"
 try:
     mongo_client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
     db = mongo_client["saarthi_db"]
     memory_col = db["permanent_memory"]
+    location_col = db["location_history"] 
     mongo_client.admin.command('ping') 
     logger.info("🟢 MongoDB Cloud Brain Connected Successfully!")
 except Exception as e:
     logger.error(f"🔴 MongoDB Connection Error: {e}")
-
-def get_cloud_memory():
-    try:
-        memories = memory_col.find({})
-        mem_list = [f"- {m['key']}: {m['value']}" for m in memories]
-        return "\n".join(mem_list) if mem_list else "Abhi tak koi memory save nahi hui hai."
-    except Exception as e:
-        return "Database error."
 
 global_chat_history = []
 last_bot_reply = "" 
@@ -65,13 +59,69 @@ class ChatResponse(BaseModel):
     action_data2: str = ""        
     action_data3: str = ""        
 
+class LocationTrackRequest(BaseModel):
+    latitude: float
+    longitude: float
+
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (V29.1.0: Lightning Speed, Avatar & Precise Volume Mode Active)!"}
+    return {"status": "🟢 Saarthi AI is Online (V31.0.0: Video Avatar & Tracker Active)!"}
+
+@app.post("/api/track_location")
+async def track_location(req: LocationTrackRequest):
+    try:
+        if not WEATHER_API_KEY: return {"status": "No Weather API"}
+        
+        url = f"http://api.openweathermap.org/data/2.5/weather?lat={req.latitude}&lon={req.longitude}&appid={WEATHER_API_KEY}&units=metric&lang=hi"
+        weather_res = requests.get(url).json()
+        
+        if weather_res.get("cod") != 200: return {"status": "Weather Error"}
+        
+        city_name = weather_res.get("name", "Unknown Area")
+        weather_desc = weather_res["weather"][0]["description"].lower()
+        weather_id = weather_res["weather"][0]["id"]
+        
+        ist_timezone = pytz.timezone('Asia/Kolkata')
+        live_time = datetime.datetime.now(ist_timezone)
+        
+        location_col.insert_one({
+            "date": live_time.strftime('%Y-%m-%d'),
+            "time": live_time.strftime('%I:%M %p'),
+            "latitude": req.latitude,
+            "longitude": req.longitude,
+            "city": city_name,
+            "weather": weather_desc
+        })
+        
+        is_bad_weather = (200 <= weather_id <= 299) or (500 <= weather_id <= 599) or (600 <= weather_id <= 699) or weather_id == 781
+        if is_bad_weather:
+            return {"alert": f"Boss alert! Aap jahan hain ({city_name}), wahan {weather_desc} hone ki sambhavna hai. Kripya dhyan rakhein!"}
+            
+        return {"status": "Saved safely"}
+    except Exception as e:
+        return {"error": str(e)}
+
+def query_location_history(date_query: str):
+    try:
+        ist_timezone = pytz.timezone('Asia/Kolkata')
+        if date_query.lower() in ["today", "aaj"]:
+            target_date = datetime.datetime.now(ist_timezone).strftime('%Y-%m-%d')
+        elif date_query.lower() in ["yesterday", "kal"]:
+            target_date = (datetime.datetime.now(ist_timezone) - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+        else:
+            target_date = date_query 
+            
+        records = list(location_col.find({"date": {"$regex": target_date}}).sort("_id", -1).limit(10))
+        if not records: return f"Boss, mere paas {target_date} ki koi location history nahi hai."
+            
+        history_text = f"Location history for {target_date}:\n"
+        for r in records:
+            history_text += f"- At {r['time']}, you were near {r['city']}. Weather was {r['weather']}.\n"
+        return history_text
+    except Exception as e: return "Database check karne me issue hua boss."
 
 def perform_web_search(query: str):
     try:
-        # 🚀 SPEED FIX: Max results 2 kar diye taaki searching instantly ho
         results = DDGS().text(query, max_results=2)
         if not results: return "Web par kuch nahi mila boss."
         summary = "\n".join([f"- {r['title']}: {r['body']}" for r in results])
@@ -107,8 +157,20 @@ saarthi_tools = [
     {
         "type": "function",
         "function": {
+            "name": "query_location_history",
+            "description": "Find out where the user was on a specific date or time.",
+            "parameters": {
+                "type": "object", 
+                "properties": {"date_query": {"type": "string"}}, 
+                "required": ["date_query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "control_device",
-            "description": "Control hardware, apps, UI, Media, Volume, and Vision.",
+            "description": "Control hardware, apps, UI, Media, Volume, Vision, and Avatar.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -118,7 +180,7 @@ saarthi_tools = [
                     },
                     "app_package": {
                         "type": "string", 
-                        "description": "App name, search query, OR volume percentage (e.g., '50', '100')."
+                        "description": "App name, search query, OR volume percentage."
                     }
                 },
                 "required": ["action"]
@@ -156,31 +218,19 @@ async def chat_with_saarthi(request: ChatRequest):
         live_time = datetime.datetime.now(ist_timezone).strftime('%A, %d %B %Y, %I:%M %p')
         memory_context = f"\n[Android GPS/Memory: {request.android_memory}]"
         
-        # 🚀 FIX: Precise Intent Guide updated with Avatar and Volume instructions
         router_system_prompt = f"""You are a smart tool-routing AI. Choose ONE tool.
         INTENT GUIDE:
-        1. Avatar Mode: "samne aao", "avatar dikhao", "jarvis samne aao" -> 'open_avatar'. "wapas jao", "avatar band karo" -> 'close_avatar'.
-        2. Volume Percentage: "volume 50% kar do", "full volume" -> 'volume_set' with app_package="50" (or "100" for full).
-        3. General Volume: "volume mute kar do", "volume up" -> 'volume_mute', 'volume_up'. "volume kam karo" -> 'volume_down'. "volume unmute karo" -> 'volume_unmute'.
-        4. Apps Kholna: "[App Name] open karo", "youtube open karo" -> 'open_app'.
-        5. Bluetooth/GPS/Share: "bluetooth on", "location chalu karo", "quick share" -> 'bluetooth_settings', 'gps_settings', 'quick_share'.
-        6. Hidden Vision (Ghost Eyes): "samne dekho", "chup chap photo lo", "eyes open" -> 'open_camera'.
-        7. Visible Vision (Scanner UI): "scanner kholo", "camera khol kar scan karo", "scanner chalu karo" -> 'open_scanner'.
-        8. YouTube: "baaghi 4 lagao" -> 'youtube_search'.
-        9. Media: "roko", "play karo" -> 'media_pause', 'media_play'.
+        1. Avatar Mode: "samne aao", "avatar dikhao" -> 'open_avatar'. "wapas jao", "avatar band karo" -> 'close_avatar'.
+        2. Location History: "aaj main kahan tha", "kal ki location" -> 'query_location_history'.
+        3. Volume: "volume 50%" -> 'volume_set'. "mute karo" -> 'volume_mute'.
+        4. Apps/Media/Settings: "youtube kholo", "bluetooth on", "photo kheecho" -> 'open_app', 'bluetooth_settings', 'open_camera'.
         """
         
         router_messages = [{"role": "system", "content": router_system_prompt}, {"role": "user", "content": request.message}]
         
-        # 🚀 SPEED FIX: 8b model for instant action routing
+        # 🚀 Lightning Fast Router
         chat_completion_router = await client.chat.completions.create(
-            messages=router_messages, 
-            model="llama-3.1-8b-instant", 
-            tools=saarthi_tools, 
-            tool_choice="auto", 
-            temperature=0.0, 
-            max_tokens=512, 
-            parallel_tool_calls=False
+            messages=router_messages, model="llama-3.1-8b-instant", tools=saarthi_tools, tool_choice="auto", temperature=0.0, max_tokens=512, parallel_tool_calls=False
         )
         
         response_message = chat_completion_router.choices[0].message
@@ -201,7 +251,6 @@ async def chat_with_saarthi(request: ChatRequest):
                 web_data = perform_web_search(func_args.get("query", request.message))
                 creative_messages.append(response_message)
                 creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": web_data})
-                # If searching, use the creative brain
                 final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7)
                 return ChatResponse(reply=final_response.choices[0].message.content)
             
@@ -209,27 +258,29 @@ async def chat_with_saarthi(request: ChatRequest):
                 weather_data = get_live_weather(func_args.get("location", "India"))
                 creative_messages.append(response_message)
                 creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": weather_data})
-                # If weather, use the creative brain
+                final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7)
+                return ChatResponse(reply=final_response.choices[0].message.content)
+                
+            elif func_name == "query_location_history":
+                history_data = query_location_history(func_args.get("date_query", "today"))
+                creative_messages.append(response_message)
+                creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": history_data})
                 final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7)
                 return ChatResponse(reply=final_response.choices[0].message.content)
             
             elif func_name == "control_device":
                 action = func_args.get("action")
-                if action in ["vision_scanning", "scan_vision"]:
-                    action = "open_scanner"
+                if action in ["vision_scanning", "scan_vision"]: action = "open_scanner"
                 
-                # 🚀 AVATAR INTERCEPTOR: Instant hardcoded reply, bypasses the slow 70B model
-                if action == "open_avatar":
-                    return ChatResponse(reply="Aa raha hoon boss!", action="CONTROL_DEVICE", action_data1="open_avatar")
-                elif action == "close_avatar":
-                    return ChatResponse(reply="Main wapas Chat Screen par aa gaya hoon boss.", action="CONTROL_DEVICE", action_data1="close_avatar")
+                # 🚀 Instant Avatar Reply
+                if action == "open_avatar": return ChatResponse(reply="Aa raha hoon boss!", action="CONTROL_DEVICE", action_data1="open_avatar")
+                elif action == "close_avatar": return ChatResponse(reply="Main wapas background mein jaa raha hoon boss.", action="CONTROL_DEVICE", action_data1="close_avatar")
 
                 return ChatResponse(reply="Processing request, boss.", action="CONTROL_DEVICE", action_data1=action, action_data2=func_args.get("app_package", ""))
             
             elif func_name == "communicate":
                 return ChatResponse(reply="Processing request, boss.", action="COMMUNICATE", action_data1=func_args.get("method", "call"), action_data2=func_args.get("contact_name", ""))
 
-        # 🚀 FALLBACK: If no tool was called, use the 70B brain for conversational reply
         final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7)
         reply_text = final_response.choices[0].message.content
         last_bot_reply = reply_text
@@ -238,28 +289,15 @@ async def chat_with_saarthi(request: ChatRequest):
     except Exception as e:
         return ChatResponse(reply="Boss, server mein thodi technical dikkat aayi.", action="NONE")
 
-# ==========================================
-# 👁️ VISION AI ENDPOINT
-# ==========================================
 @app.post("/api/vision")
 async def vision_analysis(file: UploadFile = File(...), prompt: str = Form("Is photo mein kya hai? Detail mein Hindi/Hinglish mein batao.")):
     try:
         contents = await file.read()
         base64_image = base64.b64encode(contents).decode('utf-8')
-        
         chat_completion = await client.chat.completions.create(
             model="llama-3.2-11b-vision-preview",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt + " Answer in short 2 lines. Start with 'Boss, mujhe dikh raha hai ki...'"},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                    ]
-                }
-            ],
-            temperature=0.5,
-            max_tokens=300,
+            messages=[{"role": "user", "content": [{"type": "text", "text": prompt + " Answer in short 2 lines."}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}],
+            temperature=0.5, max_tokens=300,
         )
         return {"reply": chat_completion.choices[0].message.content}
     except Exception as e:
@@ -273,28 +311,18 @@ async def transcribe_audio(file: UploadFile = File(...)):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as temp_audio:
             temp_audio.write(contents)
             temp_file_path = temp_audio.name
-
         with open(temp_file_path, "rb") as audio_file:
             transcription = await client.audio.transcriptions.create(
                 file=(file.filename, audio_file.read()),
-                model="whisper-large-v3",
-                language="hi",
-                prompt="Haan boss, bataiye. Main bilkul theek hoon. Ignore ALL background noise.", 
-                response_format="json"
+                model="whisper-large-v3", language="hi", prompt="Haan boss, bataiye.", response_format="json"
             )
-        
         os.remove(temp_file_path)
         raw_text = transcription.text.strip()
-        
-        hallucinations = ["Thank you for watching.", "Thanks for watching", "Thank you.", "Subscribe", "watching.", "didn't catch that", "Can you repeat"]
+        hallucinations = ["Thank you for watching.", "Thanks for watching", "Thank you.", "Subscribe", "watching."]
         for bad_word in hallucinations:
             raw_text = re.sub(re.escape(bad_word), "", raw_text, flags=re.IGNORECASE).strip()
-            
-        if not raw_text or len(raw_text) < 3:
-            return {"text": "[error]"}
-            
+        if not raw_text or len(raw_text) < 3: return {"text": "[error]"}
         return {"text": raw_text}
-        
     except Exception as e:
         if os.path.exists(temp_file_path): os.remove(temp_file_path)
         raise HTTPException(status_code=500, detail=str(e))
