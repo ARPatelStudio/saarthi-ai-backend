@@ -21,10 +21,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version Updated: V32.0.0 - Continuous Memory & Friend Chat Mode
-app = FastAPI(title="Saarthi AI Core", version="32.0.0") 
+app = FastAPI(title="Saarthi AI Core", version="32.1.0") 
 
-# API Keys
 api_key = os.getenv("GROQ_API_KEY")
 if not api_key:
     logger.error("🚨 GROQ_API_KEY is missing from environment variables!")
@@ -36,14 +34,11 @@ MONGO_URI = "mongodb+srv://favouritegamer192_db_user:pjt6UStm6rB3ekEv@saarthi.sf
 try:
     mongo_client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
     db = mongo_client["saarthi_db"]
-    memory_col = db["permanent_memory"]
     location_col = db["location_history"] 
     mongo_client.admin.command('ping') 
-    logger.info("🟢 MongoDB Cloud Brain Connected Successfully!")
 except Exception as e:
     logger.error(f"🔴 MongoDB Connection Error: {e}")
 
-# 🚀 MEMORY FIX: Ab yeh history actually use hogi
 global_chat_history = []
 last_bot_reply = "" 
 
@@ -60,7 +55,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (V32.0.0: Friend Mode & Memory Active)!"}
+    return {"status": "🟢 Saarthi AI is Online (V32.1.0: Hyper-Router & Speed Fix Active)!"}
 
 @app.post("/api/track_location")
 async def track_location(req: LocationTrackRequest):
@@ -189,31 +184,32 @@ async def chat_with_saarthi(request: ChatRequest):
         live_time = datetime.datetime.now(ist_timezone).strftime('%A, %d %B %Y, %I:%M %p')
         memory_context = f"\n[Android GPS/Memory: {request.android_memory}]"
         
-        router_system_prompt = f"""You are a smart tool-routing AI. Choose ONE tool ONLY IF asked to perform a physical task on the phone or search the web. IF THE USER IS JUST CHATTING/TALKING NORMALLY, DO NOT SELECT ANY TOOL.
-        INTENT GUIDE:
-        1. Avatar Mode: "samne aao", "avatar dikhao" -> 'open_avatar'. "wapas jao", "avatar band karo" -> 'close_avatar'.
-        2. Location History: "aaj main kahan tha" -> 'query_location_history'.
-        3. Apps/Settings: "youtube kholo", "bluetooth on", "photo kheecho" -> 'open_app', 'bluetooth_settings', 'open_camera'.
+        # 🚀 FIX 1: Extremely aggressive prompt for Avatar and Actions
+        router_system_prompt = f"""You are a hyper-fast tool router. 
+        CRITICAL RULES:
+        1. IF the user says ANYTHING like "samne aao", "avatar dikhao", "chehra dikhao", "bahar aao", YOU MUST IMMEDIATELY trigger 'control_device' with 'open_avatar'. DO NOT treat this as normal chat.
+        2. IF the user asks to open an app, set volume, or check location, trigger the appropriate tool instantly.
+        3. IF it is just a normal greeting or chat, do not use any tool.
         """
         
         router_messages = [{"role": "system", "content": router_system_prompt}, {"role": "user", "content": request.message}]
         
+        # 8B model fast router
         chat_completion_router = await client.chat.completions.create(
-            messages=router_messages, model="llama-3.1-8b-instant", tools=saarthi_tools, tool_choice="auto", temperature=0.0, max_tokens=512, parallel_tool_calls=False
+            messages=router_messages, model="llama-3.1-8b-instant", tools=saarthi_tools, tool_choice="auto", temperature=0.0, max_tokens=128, parallel_tool_calls=False
         )
         
         response_message = chat_completion_router.choices[0].message
         tool_calls = response_message.tool_calls
 
-        # 🚀 NEW: Friend Persona & Context Memory
-        friend_prompt = """Tumhara naam Saarthi (ya Jarvis) hai. Tum ek ultra-intelligent AI aur mere sabse acche dost (friend) ho. 
-        Tum hamesha Hinglish mein natural, friendly aur casual tone mein baat karte ho. 
-        Agar main tumse normal baat karu (jaise haal-chaal poochna, joke sunna, ya advice lena), toh ek sacche dost ki tarah jawab dena, machine ki tarah nahi."""
+        friend_prompt = """Tumhara naam Jarvis hai. Tum ek smart aur fast AI dost ho. 
+        Tum hamesha Hinglish mein short (1-2 line) aur natural tone mein baat karte ho. 
+        Lamba bhashan mat dena, taaki reply turant jaye."""
         
         creative_messages = [{"role": "system", "content": f"{friend_prompt}\nREALTIME DATA:\n- Time: {live_time} {memory_context}"}]
         
-        # Purani baatein yaad rakhne ke liye pichle 10 messages add kar rahe hain
-        creative_messages.extend(global_chat_history[-10:])
+        # Memory limit reduced to last 6 messages to save reading time & reduce latency
+        creative_messages.extend(global_chat_history[-6:])
         creative_messages.append({"role": "user", "content": request.message})
 
         final_reply_text = ""
@@ -231,44 +227,41 @@ async def chat_with_saarthi(request: ChatRequest):
                 web_data = perform_web_search(func_args.get("query", request.message))
                 creative_messages.append(response_message)
                 creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": web_data})
-                final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7)
+                final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7, max_tokens=256)
                 final_reply_text = final_response.choices[0].message.content
             
             elif func_name == "get_live_weather":
                 weather_data = get_live_weather(func_args.get("location", "India"))
                 creative_messages.append(response_message)
                 creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": weather_data})
-                final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7)
+                final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7, max_tokens=256)
                 final_reply_text = final_response.choices[0].message.content
                 
             elif func_name == "query_location_history":
                 history_data = query_location_history(func_args.get("date_query", "today"))
                 creative_messages.append(response_message)
                 creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": history_data})
-                final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7)
+                final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7, max_tokens=256)
                 final_reply_text = final_response.choices[0].message.content
             
             elif func_name == "control_device":
                 action = func_args.get("action")
                 if action in ["vision_scanning", "scan_vision"]: action = "open_scanner"
                 
-                if action == "open_avatar": return ChatResponse(reply="Aa raha hoon boss!", action="CONTROL_DEVICE", action_data1="open_avatar")
-                elif action == "close_avatar": return ChatResponse(reply="Main wapas background mein jaa raha hoon boss.", action="CONTROL_DEVICE", action_data1="close_avatar")
+                # 🚀 FIX 2: Bypassing the heavy 70B model entirely for instant hardware/avatar tasks
+                if action == "open_avatar": 
+                    return ChatResponse(reply="Aa raha hoon boss!", action="CONTROL_DEVICE", action_data1="open_avatar")
+                elif action == "close_avatar": 
+                    return ChatResponse(reply="Main wapas background mein jaa raha hoon boss.", action="CONTROL_DEVICE", action_data1="close_avatar")
 
-                final_reply_text = "Done boss."
-                action_type = "CONTROL_DEVICE"
-                act_d1 = action
-                act_d2 = func_args.get("app_package", "")
+                return ChatResponse(reply="Processing request, boss.", action="CONTROL_DEVICE", action_data1=action, action_data2=func_args.get("app_package", ""))
             
             elif func_name == "communicate":
-                final_reply_text = "Processing request, boss."
-                action_type = "COMMUNICATE"
-                act_d1 = func_args.get("method", "call")
-                act_d2 = func_args.get("contact_name", "")
+                return ChatResponse(reply="Processing request, boss.", action="COMMUNICATE", action_data1=func_args.get("method", "call"), action_data2=func_args.get("contact_name", ""))
 
         else:
-            # 🚀 FRIEND CHAT MODE (Jab koi tool trigger na ho)
-            final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7)
+            # 🚀 FRIEND CHAT MODE (with fast output)
+            final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7, max_tokens=256)
             final_reply_text = final_response.choices[0].message.content
 
         # Save conversation to memory
@@ -289,7 +282,7 @@ async def vision_analysis(file: UploadFile = File(...), prompt: str = Form("Is p
         chat_completion = await client.chat.completions.create(
             model="llama-3.2-11b-vision-preview",
             messages=[{"role": "user", "content": [{"type": "text", "text": prompt + " Answer in short 2 lines."}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}],
-            temperature=0.5, max_tokens=300,
+            temperature=0.5, max_tokens=256,
         )
         return {"reply": chat_completion.choices[0].message.content}
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
