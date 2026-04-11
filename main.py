@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-app = FastAPI(title="Saarthi AI Core", version="33.0.0") 
+app = FastAPI(title="Saarthi AI Core", version="34.0.0") 
 
 api_key = os.getenv("GROQ_API_KEY")
 if not api_key:
@@ -55,7 +55,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (V33.0.0: Zero-Latency Interceptor Active)!"}
+    return {"status": "🟢 Saarthi AI is Online (V34.0.0: Zero-Latency Single Pass Active)!"}
 
 # --- TRACKING & WEATHER LOGIC ---
 @app.post("/api/track_location")
@@ -193,7 +193,7 @@ async def chat_with_saarthi(request: ChatRequest):
     if any(word in user_msg for word in ["wapas jao", "avatar band", "piche jao"]):
         return ChatResponse(reply="Main wapas background mein jaa raha hoon boss.", action="CONTROL_DEVICE", action_data1="close_avatar")
 
-    # 2. Volume Interceptor (Fixes the crash and makes it instant)
+    # 2. Volume Interceptor (Instant)
     if "volume" in user_msg or "aawaz" in user_msg:
         nums = re.findall(r'\d+', user_msg)
         if nums:
@@ -209,27 +209,31 @@ async def chat_with_saarthi(request: ChatRequest):
             return ChatResponse(reply="Volume unmute kar diya.", action="CONTROL_DEVICE", action_data1="volume_unmute")
 
     # =======================================================
-    # AI PROCESSING (For Chat, Search, Apps & Complex commands)
+    # 🚀 V34.0 SINGLE-PASS AI PROCESSING
     # =======================================================
     try:
         ist_timezone = pytz.timezone('Asia/Kolkata')
         live_time = datetime.datetime.now(ist_timezone).strftime('%A, %d %B %Y, %I:%M %p')
         memory_context = f"\n[Android GPS/Memory: {request.android_memory}]"
         
-        router_system_prompt = f"""You are a tool router. IF user wants to open an app, search, or check location -> use tool. Else do NOT use tool. DO NOT use tools for avatar or volume (already handled)."""
+        # Ek hi super-prompt jo dosti aur tool dono manage karega
+        system_prompt = f"""Tumhara naam Jarvis hai. Tum ek smart AI dost ho. 
+        Tumhara jawab HINGLISH mein hona chahiye, bahut short (1-2 lines), natural aur fast.
+        DO NOT use tools for simple chat. Use tools ONLY for opening apps, calls, location, or weather.
+        Time: {live_time} {memory_context}"""
         
-        router_messages = [{"role": "system", "content": router_system_prompt}, {"role": "user", "content": request.message}]
-        chat_completion_router = await client.chat.completions.create(
-            messages=router_messages, model="llama-3.1-8b-instant", tools=saarthi_tools, tool_choice="auto", temperature=0.0, max_tokens=128, parallel_tool_calls=False
+        messages = [{"role": "system", "content": system_prompt}]
+        # Memory limit choti rakhi hai taaki jaldi padh sake
+        messages.extend(global_chat_history[-4:]) 
+        messages.append({"role": "user", "content": request.message})
+
+        # Sirf ek fast model call
+        chat_completion = await client.chat.completions.create(
+            model="llama-3.1-8b-instant", messages=messages, tools=saarthi_tools, tool_choice="auto", temperature=0.7, max_tokens=150
         )
         
-        response_message = chat_completion_router.choices[0].message
-        tool_calls = response_message.tool_calls
-
-        friend_prompt = """Tumhara naam Jarvis hai. Tum ek smart AI dost ho. Hinglish mein short aur natural baat karo."""
-        creative_messages = [{"role": "system", "content": f"{friend_prompt}\nREALTIME DATA:\n- Time: {live_time} {memory_context}"}]
-        creative_messages.extend(global_chat_history[-6:])
-        creative_messages.append({"role": "user", "content": request.message})
+        response_msg = chat_completion.choices[0].message
+        tool_calls = response_msg.tool_calls
 
         final_reply_text = ""
         action_type = "NONE"
@@ -242,39 +246,30 @@ async def chat_with_saarthi(request: ChatRequest):
             try: func_args = json.loads(tool_call.function.arguments)
             except: func_args = {}
 
-            if func_name == "perform_web_search":
-                web_data = perform_web_search(func_args.get("query", request.message))
-                creative_messages.append(response_message)
-                creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": web_data})
-                final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7, max_tokens=256)
-                final_reply_text = final_response.choices[0].message.content
-            
-            elif func_name == "get_live_weather":
-                weather_data = get_live_weather(func_args.get("location", "India"))
-                creative_messages.append(response_message)
-                creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": weather_data})
-                final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7, max_tokens=256)
-                final_reply_text = final_response.choices[0].message.content
-                
-            elif func_name == "query_location_history":
-                history_data = query_location_history(func_args.get("date_query", "today"))
-                creative_messages.append(response_message)
-                creative_messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": history_data})
-                final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7, max_tokens=256)
-                final_reply_text = final_response.choices[0].message.content
-            
-            elif func_name == "control_device":
-                # Safe JSON Extraction to prevent Pydantic errors
+            # Actions sidha wapas jayenge, lamba nahi sochenge
+            if func_name == "control_device":
                 action = str(func_args.get("action", ""))
-                return ChatResponse(reply="Processing request, boss.", action="CONTROL_DEVICE", action_data1=action, action_data2=str(func_args.get("app_package", "")))
+                if action in ["vision_scanning", "scan_vision"]: action = "open_scanner"
+                return ChatResponse(reply="Done boss.", action="CONTROL_DEVICE", action_data1=action, action_data2=str(func_args.get("app_package", "")))
             
             elif func_name == "communicate":
                 return ChatResponse(reply="Processing request, boss.", action="COMMUNICATE", action_data1=str(func_args.get("method", "call")), action_data2=str(func_args.get("contact_name", "")))
+            
+            # Agar weather, location ya search chahiye, toh fast data fetch hoga
+            elif func_name in ["perform_web_search", "get_live_weather", "query_location_history"]:
+                if func_name == "perform_web_search": data = perform_web_search(func_args.get("query", user_msg))
+                elif func_name == "get_live_weather": data = get_live_weather(func_args.get("location", "India"))
+                else: data = query_location_history(func_args.get("date_query", "today"))
 
+                messages.append(response_msg)
+                messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": data})
+                
+                final_response = await client.chat.completions.create(model="llama-3.1-8b-instant", messages=messages, temperature=0.7, max_tokens=150)
+                final_reply_text = final_response.choices[0].message.content
         else:
-            final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7, max_tokens=256)
-            final_reply_text = final_response.choices[0].message.content
+            final_reply_text = response_msg.content or "Done."
 
+        # Memory Save
         global_chat_history.append({"role": "user", "content": request.message})
         global_chat_history.append({"role": "assistant", "content": final_reply_text})
         
@@ -282,7 +277,7 @@ async def chat_with_saarthi(request: ChatRequest):
         return ChatResponse(reply=final_reply_text, action=action_type, action_data1=act_d1, action_data2=act_d2)
 
     except Exception as e:
-        print(f"CRITICAL ERROR: {str(e)}") # Ab error console me dikhega crash hone pe
+        print(f"CRITICAL ERROR: {str(e)}") 
         return ChatResponse(reply="Boss, server par thodi technical dikkat aayi.", action="NONE")
 
 @app.post("/api/vision")
