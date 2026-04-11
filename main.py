@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-app = FastAPI(title="Saarthi AI Core", version="34.0.0") 
+app = FastAPI(title="Saarthi AI Core", version="35.1.0") 
 
 api_key = os.getenv("GROQ_API_KEY")
 if not api_key:
@@ -35,6 +35,7 @@ try:
     mongo_client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
     db = mongo_client["saarthi_db"]
     location_col = db["location_history"] 
+    memory_col = db["permanent_memory"]
     mongo_client.admin.command('ping') 
 except Exception as e:
     logger.error(f"🔴 MongoDB Connection Error: {e}")
@@ -55,7 +56,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (V34.0.0: Zero-Latency Single Pass Active)!"}
+    return {"status": "🟢 Saarthi AI is Online (V35.1.0: Smart Engine & Hallucination Fix Active)!"}
 
 # --- TRACKING & WEATHER LOGIC ---
 @app.post("/api/track_location")
@@ -209,27 +210,30 @@ async def chat_with_saarthi(request: ChatRequest):
             return ChatResponse(reply="Volume unmute kar diya.", action="CONTROL_DEVICE", action_data1="volume_unmute")
 
     # =======================================================
-    # 🚀 V34.0 SINGLE-PASS AI PROCESSING
+    # 🚀 SMART 70B AI PROCESSING & HALLUCINATION FIX
     # =======================================================
     try:
         ist_timezone = pytz.timezone('Asia/Kolkata')
         live_time = datetime.datetime.now(ist_timezone).strftime('%A, %d %B %Y, %I:%M %p')
         memory_context = f"\n[Android GPS/Memory: {request.android_memory}]"
         
-        # Ek hi super-prompt jo dosti aur tool dono manage karega
-        system_prompt = f"""Tumhara naam Jarvis hai. Tum ek smart AI dost ho. 
-        Tumhara jawab HINGLISH mein hona chahiye, bahut short (1-2 lines), natural aur fast.
-        DO NOT use tools for simple chat. Use tools ONLY for opening apps, calls, location, or weather.
-        Time: {live_time} {memory_context}"""
+        # FIX: Strict Tool rules so it never invents tools like 'check_memory_status'
+        system_prompt = f"""Tum Jarvis ho. Ek ultra-smart AI assistant. HINGLISH mein chhota aur fast jawab do.
+        CRITICAL RULES FOR TOOLS:
+        1. ONLY use the tools explicitly provided in your tool list.
+        2. NEVER invent, hallucinate, or call non-existent tools like 'check_memory_status'.
+        3. Agar user koi App kholne, Call karne, ya Phone ka kaam bole tabhi Tools use karo.
+        4. Normal chat ke liye bina kisi tool ke direct reply karo.
+        Time: {live_time}
+        Context: {memory_context}"""
         
         messages = [{"role": "system", "content": system_prompt}]
-        # Memory limit choti rakhi hai taaki jaldi padh sake
         messages.extend(global_chat_history[-4:]) 
         messages.append({"role": "user", "content": request.message})
 
-        # Sirf ek fast model call
+        # 🚀 70B Versatile Engine for proper reasoning and friend chat
         chat_completion = await client.chat.completions.create(
-            model="llama-3.1-8b-instant", messages=messages, tools=saarthi_tools, tool_choice="auto", temperature=0.7, max_tokens=150
+            model="llama-3.3-70b-versatile", messages=messages, tools=saarthi_tools, tool_choice="auto", temperature=0.7, max_tokens=150
         )
         
         response_msg = chat_completion.choices[0].message
@@ -246,16 +250,14 @@ async def chat_with_saarthi(request: ChatRequest):
             try: func_args = json.loads(tool_call.function.arguments)
             except: func_args = {}
 
-            # Actions sidha wapas jayenge, lamba nahi sochenge
             if func_name == "control_device":
                 action = str(func_args.get("action", ""))
                 if action in ["vision_scanning", "scan_vision"]: action = "open_scanner"
-                return ChatResponse(reply="Done boss.", action="CONTROL_DEVICE", action_data1=action, action_data2=str(func_args.get("app_package", "")))
+                return ChatResponse(reply="Processing request, boss.", action="CONTROL_DEVICE", action_data1=action, action_data2=str(func_args.get("app_package", "")))
             
             elif func_name == "communicate":
                 return ChatResponse(reply="Processing request, boss.", action="COMMUNICATE", action_data1=str(func_args.get("method", "call")), action_data2=str(func_args.get("contact_name", "")))
             
-            # Agar weather, location ya search chahiye, toh fast data fetch hoga
             elif func_name in ["perform_web_search", "get_live_weather", "query_location_history"]:
                 if func_name == "perform_web_search": data = perform_web_search(func_args.get("query", user_msg))
                 elif func_name == "get_live_weather": data = get_live_weather(func_args.get("location", "India"))
@@ -264,10 +266,10 @@ async def chat_with_saarthi(request: ChatRequest):
                 messages.append(response_msg)
                 messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": data})
                 
-                final_response = await client.chat.completions.create(model="llama-3.1-8b-instant", messages=messages, temperature=0.7, max_tokens=150)
+                final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=messages, temperature=0.7, max_tokens=150)
                 final_reply_text = final_response.choices[0].message.content
         else:
-            final_reply_text = response_msg.content or "Done."
+            final_reply_text = response_msg.content or "Done boss."
 
         # Memory Save
         global_chat_history.append({"role": "user", "content": request.message})
