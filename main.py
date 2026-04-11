@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-app = FastAPI(title="Saarthi AI Core", version="32.1.0") 
+app = FastAPI(title="Saarthi AI Core", version="33.0.0") 
 
 api_key = os.getenv("GROQ_API_KEY")
 if not api_key:
@@ -55,8 +55,9 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (V32.1.0: Hyper-Router & Speed Fix Active)!"}
+    return {"status": "🟢 Saarthi AI is Online (V33.0.0: Zero-Latency Interceptor Active)!"}
 
+# --- TRACKING & WEATHER LOGIC ---
 @app.post("/api/track_location")
 async def track_location(req: LocationTrackRequest):
     try:
@@ -150,11 +151,11 @@ saarthi_tools = [
         "type": "function",
         "function": {
             "name": "control_device",
-            "description": "Control hardware, apps, UI, Media, Volume, Vision, and Avatar.",
+            "description": "Control hardware, apps, UI, Media, Volume, Vision.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "action": {"type": "string", "enum": ["open_app", "close_app", "youtube_search", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "open_camera", "open_scanner", "set_alarm", "set_timer", "bluetooth_settings", "gps_settings", "quick_share", "vision_scanning", "scan_vision", "volume_up", "volume_down", "volume_mute", "volume_unmute", "volume_set", "open_avatar", "close_avatar"]},
+                    "action": {"type": "string", "enum": ["open_app", "close_app", "youtube_search", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "open_camera", "open_scanner", "set_alarm", "set_timer", "bluetooth_settings", "gps_settings", "quick_share", "vision_scanning", "scan_vision"]},
                     "app_package": {"type": "string"}
                 },
                 "required": ["action"]
@@ -176,25 +177,48 @@ async def chat_with_saarthi(request: ChatRequest):
     global global_chat_history
     global last_bot_reply
     
-    if last_bot_reply and last_bot_reply.lower() in request.message.lower() and len(request.message) > 10:
+    user_msg = request.message.lower()
+    
+    if last_bot_reply and last_bot_reply.lower() in user_msg and len(user_msg) > 10:
         return ChatResponse(reply="...", action="NONE") 
-        
+
+    # =======================================================
+    # 🚀 0.01 SECOND INTERCEPTOR (BYPASSES AI FOR FAST ACTION)
+    # =======================================================
+    
+    # 1. Avatar Interceptor
+    if any(word in user_msg for word in ["samne aao", "avatar dikhao", "chehra dikhao", "bahar aao"]):
+        return ChatResponse(reply="Aa raha hoon boss!", action="CONTROL_DEVICE", action_data1="open_avatar")
+    
+    if any(word in user_msg for word in ["wapas jao", "avatar band", "piche jao"]):
+        return ChatResponse(reply="Main wapas background mein jaa raha hoon boss.", action="CONTROL_DEVICE", action_data1="close_avatar")
+
+    # 2. Volume Interceptor (Fixes the crash and makes it instant)
+    if "volume" in user_msg or "aawaz" in user_msg:
+        nums = re.findall(r'\d+', user_msg)
+        if nums:
+            vol = nums[0]
+            return ChatResponse(reply=f"Volume {vol} percent set kar diya boss.", action="CONTROL_DEVICE", action_data1="volume_set", action_data2=str(vol))
+        elif "down" in user_msg or "kam" in user_msg or "ghata" in user_msg:
+            return ChatResponse(reply="Volume kam kar diya.", action="CONTROL_DEVICE", action_data1="volume_down")
+        elif "up" in user_msg or "bada" in user_msg or "badha" in user_msg or "tez" in user_msg:
+            return ChatResponse(reply="Volume badha diya.", action="CONTROL_DEVICE", action_data1="volume_up")
+        elif "mute" in user_msg or "band" in user_msg:
+            return ChatResponse(reply="Volume mute kar diya.", action="CONTROL_DEVICE", action_data1="volume_mute")
+        elif "unmute" in user_msg or "kholo" in user_msg:
+            return ChatResponse(reply="Volume unmute kar diya.", action="CONTROL_DEVICE", action_data1="volume_unmute")
+
+    # =======================================================
+    # AI PROCESSING (For Chat, Search, Apps & Complex commands)
+    # =======================================================
     try:
         ist_timezone = pytz.timezone('Asia/Kolkata')
         live_time = datetime.datetime.now(ist_timezone).strftime('%A, %d %B %Y, %I:%M %p')
         memory_context = f"\n[Android GPS/Memory: {request.android_memory}]"
         
-        # 🚀 FIX 1: Extremely aggressive prompt for Avatar and Actions
-        router_system_prompt = f"""You are a hyper-fast tool router. 
-        CRITICAL RULES:
-        1. IF the user says ANYTHING like "samne aao", "avatar dikhao", "chehra dikhao", "bahar aao", YOU MUST IMMEDIATELY trigger 'control_device' with 'open_avatar'. DO NOT treat this as normal chat.
-        2. IF the user asks to open an app, set volume, or check location, trigger the appropriate tool instantly.
-        3. IF it is just a normal greeting or chat, do not use any tool.
-        """
+        router_system_prompt = f"""You are a tool router. IF user wants to open an app, search, or check location -> use tool. Else do NOT use tool. DO NOT use tools for avatar or volume (already handled)."""
         
         router_messages = [{"role": "system", "content": router_system_prompt}, {"role": "user", "content": request.message}]
-        
-        # 8B model fast router
         chat_completion_router = await client.chat.completions.create(
             messages=router_messages, model="llama-3.1-8b-instant", tools=saarthi_tools, tool_choice="auto", temperature=0.0, max_tokens=128, parallel_tool_calls=False
         )
@@ -202,13 +226,8 @@ async def chat_with_saarthi(request: ChatRequest):
         response_message = chat_completion_router.choices[0].message
         tool_calls = response_message.tool_calls
 
-        friend_prompt = """Tumhara naam Jarvis hai. Tum ek smart aur fast AI dost ho. 
-        Tum hamesha Hinglish mein short (1-2 line) aur natural tone mein baat karte ho. 
-        Lamba bhashan mat dena, taaki reply turant jaye."""
-        
+        friend_prompt = """Tumhara naam Jarvis hai. Tum ek smart AI dost ho. Hinglish mein short aur natural baat karo."""
         creative_messages = [{"role": "system", "content": f"{friend_prompt}\nREALTIME DATA:\n- Time: {live_time} {memory_context}"}]
-        
-        # Memory limit reduced to last 6 messages to save reading time & reduce latency
         creative_messages.extend(global_chat_history[-6:])
         creative_messages.append({"role": "user", "content": request.message})
 
@@ -245,26 +264,17 @@ async def chat_with_saarthi(request: ChatRequest):
                 final_reply_text = final_response.choices[0].message.content
             
             elif func_name == "control_device":
-                action = func_args.get("action")
-                if action in ["vision_scanning", "scan_vision"]: action = "open_scanner"
-                
-                # 🚀 FIX 2: Bypassing the heavy 70B model entirely for instant hardware/avatar tasks
-                if action == "open_avatar": 
-                    return ChatResponse(reply="Aa raha hoon boss!", action="CONTROL_DEVICE", action_data1="open_avatar")
-                elif action == "close_avatar": 
-                    return ChatResponse(reply="Main wapas background mein jaa raha hoon boss.", action="CONTROL_DEVICE", action_data1="close_avatar")
-
-                return ChatResponse(reply="Processing request, boss.", action="CONTROL_DEVICE", action_data1=action, action_data2=func_args.get("app_package", ""))
+                # Safe JSON Extraction to prevent Pydantic errors
+                action = str(func_args.get("action", ""))
+                return ChatResponse(reply="Processing request, boss.", action="CONTROL_DEVICE", action_data1=action, action_data2=str(func_args.get("app_package", "")))
             
             elif func_name == "communicate":
-                return ChatResponse(reply="Processing request, boss.", action="COMMUNICATE", action_data1=func_args.get("method", "call"), action_data2=func_args.get("contact_name", ""))
+                return ChatResponse(reply="Processing request, boss.", action="COMMUNICATE", action_data1=str(func_args.get("method", "call")), action_data2=str(func_args.get("contact_name", "")))
 
         else:
-            # 🚀 FRIEND CHAT MODE (with fast output)
             final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=creative_messages, temperature=0.7, max_tokens=256)
             final_reply_text = final_response.choices[0].message.content
 
-        # Save conversation to memory
         global_chat_history.append({"role": "user", "content": request.message})
         global_chat_history.append({"role": "assistant", "content": final_reply_text})
         
@@ -272,7 +282,8 @@ async def chat_with_saarthi(request: ChatRequest):
         return ChatResponse(reply=final_reply_text, action=action_type, action_data1=act_d1, action_data2=act_d2)
 
     except Exception as e:
-        return ChatResponse(reply="Boss, thodi technical dikkat aayi.", action="NONE")
+        print(f"CRITICAL ERROR: {str(e)}") # Ab error console me dikhega crash hone pe
+        return ChatResponse(reply="Boss, server par thodi technical dikkat aayi.", action="NONE")
 
 @app.post("/api/vision")
 async def vision_analysis(file: UploadFile = File(...), prompt: str = Form("Is photo mein kya hai? Detail mein Hindi/Hinglish mein batao.")):
