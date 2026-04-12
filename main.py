@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-app = FastAPI(title="Saarthi AI Core", version="35.1.0") 
+app = FastAPI(title="Saarthi AI Core", version="35.2.0") 
 
 api_key = os.getenv("GROQ_API_KEY")
 if not api_key:
@@ -56,7 +56,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (V35.1.0: Smart Engine & Hallucination Fix Active)!"}
+    return {"status": "🟢 Saarthi AI is Online (V35.2.0: Super-Hearing & Smart Interceptor Active)!"}
 
 # --- TRACKING & WEATHER LOGIC ---
 @app.post("/api/track_location")
@@ -178,35 +178,38 @@ async def chat_with_saarthi(request: ChatRequest):
     global global_chat_history
     global last_bot_reply
     
-    user_msg = request.message.lower()
+    # 🚀 FIX 1: Punctuation hata kar string ko ekdum clean banaya
+    raw_msg = request.message.lower()
+    user_msg = re.sub(r'[^\w\s]', '', raw_msg) 
     
     if last_bot_reply and last_bot_reply.lower() in user_msg and len(user_msg) > 10:
         return ChatResponse(reply="...", action="NONE") 
 
     # =======================================================
-    # 🚀 0.01 SECOND INTERCEPTOR (BYPASSES AI FOR FAST ACTION)
+    # 🚀 0.01 SECOND INTERCEPTOR (SUPER-HEARING)
     # =======================================================
     
     # 1. Avatar Interceptor
-    if any(word in user_msg for word in ["samne aao", "avatar dikhao", "chehra dikhao", "bahar aao"]):
+    if re.search(r"\b(samne|saamne|samnay|samane|avatar|chehra|bahar)\b", user_msg):
         return ChatResponse(reply="Aa raha hoon boss!", action="CONTROL_DEVICE", action_data1="open_avatar")
     
-    if any(word in user_msg for word in ["wapas jao", "avatar band", "piche jao"]):
-        return ChatResponse(reply="Main wapas background mein jaa raha hoon boss.", action="CONTROL_DEVICE", action_data1="close_avatar")
+    if re.search(r"\b(wapas|piche|pichhe|band|close)\b", user_msg):
+        if "avatar" in user_msg or "jao" in user_msg or "karo" in user_msg:
+            return ChatResponse(reply="Main wapas background mein jaa raha hoon boss.", action="CONTROL_DEVICE", action_data1="close_avatar")
 
     # 2. Volume Interceptor (Instant)
-    if "volume" in user_msg or "aawaz" in user_msg:
+    if re.search(r"\b(volume|aawaz|awaz)\b", user_msg):
         nums = re.findall(r'\d+', user_msg)
         if nums:
             vol = nums[0]
             return ChatResponse(reply=f"Volume {vol} percent set kar diya boss.", action="CONTROL_DEVICE", action_data1="volume_set", action_data2=str(vol))
-        elif "down" in user_msg or "kam" in user_msg or "ghata" in user_msg:
+        elif re.search(r"\b(down|kam|ghata)\b", user_msg):
             return ChatResponse(reply="Volume kam kar diya.", action="CONTROL_DEVICE", action_data1="volume_down")
-        elif "up" in user_msg or "bada" in user_msg or "badha" in user_msg or "tez" in user_msg:
+        elif re.search(r"\b(up|bada|badha|tez)\b", user_msg):
             return ChatResponse(reply="Volume badha diya.", action="CONTROL_DEVICE", action_data1="volume_up")
-        elif "mute" in user_msg or "band" in user_msg:
+        elif re.search(r"\b(mute|band)\b", user_msg):
             return ChatResponse(reply="Volume mute kar diya.", action="CONTROL_DEVICE", action_data1="volume_mute")
-        elif "unmute" in user_msg or "kholo" in user_msg:
+        elif re.search(r"\b(unmute|kholo)\b", user_msg):
             return ChatResponse(reply="Volume unmute kar diya.", action="CONTROL_DEVICE", action_data1="volume_unmute")
 
     # =======================================================
@@ -217,7 +220,6 @@ async def chat_with_saarthi(request: ChatRequest):
         live_time = datetime.datetime.now(ist_timezone).strftime('%A, %d %B %Y, %I:%M %p')
         memory_context = f"\n[Android GPS/Memory: {request.android_memory}]"
         
-        # FIX: Strict Tool rules so it never invents tools like 'check_memory_status'
         system_prompt = f"""Tum Jarvis ho. Ek ultra-smart AI assistant. HINGLISH mein chhota aur fast jawab do.
         CRITICAL RULES FOR TOOLS:
         1. ONLY use the tools explicitly provided in your tool list.
@@ -231,7 +233,7 @@ async def chat_with_saarthi(request: ChatRequest):
         messages.extend(global_chat_history[-4:]) 
         messages.append({"role": "user", "content": request.message})
 
-        # 🚀 70B Versatile Engine for proper reasoning and friend chat
+        # 🚀 70B Versatile Engine
         chat_completion = await client.chat.completions.create(
             model="llama-3.3-70b-versatile", messages=messages, tools=saarthi_tools, tool_choice="auto", temperature=0.7, max_tokens=150
         )
@@ -304,14 +306,20 @@ async def transcribe_audio(file: UploadFile = File(...)):
             temp_audio.write(contents)
             temp_file_path = temp_audio.name
         with open(temp_file_path, "rb") as audio_file:
+            # 🚀 FIX 3: Strong prompt so Whisper understands Hinglish
             transcription = await client.audio.transcriptions.create(
-                file=(file.filename, audio_file.read()), model="whisper-large-v3", language="hi", prompt="Haan boss, bataiye.", response_format="json"
+                file=(file.filename, audio_file.read()), model="whisper-large-v3", language="hi", 
+                prompt="Haan boss, bataiye. Samne aao. Wapas jao. Volume tez karo.", response_format="json"
             )
         os.remove(temp_file_path)
         raw_text = transcription.text.strip()
-        for bad_word in ["Thank you for watching.", "Thanks for watching", "Thank you.", "Subscribe", "watching."]:
+        
+        # 🚀 FIX 4: Aggressive Noise Filter
+        bad_phrases = ["Thank you for watching.", "Thanks for watching", "Thank you.", "Subscribe", "watching.", "Ambe Tu Hai", "Please subscribe", "you", "for"]
+        for bad_word in bad_phrases:
             raw_text = re.sub(re.escape(bad_word), "", raw_text, flags=re.IGNORECASE).strip()
-        if not raw_text or len(raw_text) < 3: return {"text": "[error]"}
+            
+        if not raw_text or len(raw_text) < 2: return {"text": "[error]"}
         return {"text": raw_text}
     except Exception as e:
         if os.path.exists(temp_file_path): os.remove(temp_file_path)
