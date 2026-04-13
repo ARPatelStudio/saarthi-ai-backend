@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-app = FastAPI(title="Saarthi AI Core", version="35.2.0") 
+app = FastAPI(title="Saarthi AI Core", version="35.3.0") 
 
 api_key = os.getenv("GROQ_API_KEY")
 if not api_key:
@@ -56,7 +56,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (V35.2.0: Super-Hearing & Smart Interceptor Active)!"}
+    return {"status": "🟢 Saarthi AI is Online (V35.3.0: Hallucination Catcher Active)!"}
 
 # --- TRACKING & WEATHER LOGIC ---
 @app.post("/api/track_location")
@@ -178,7 +178,7 @@ async def chat_with_saarthi(request: ChatRequest):
     global global_chat_history
     global last_bot_reply
     
-    # 🚀 FIX 1: Punctuation hata kar string ko ekdum clean banaya
+    # 🚀 Punctuation hata kar string ko ekdum clean banaya
     raw_msg = request.message.lower()
     user_msg = re.sub(r'[^\w\s]', '', raw_msg) 
     
@@ -279,6 +279,28 @@ async def chat_with_saarthi(request: ChatRequest):
                 final_reply_text = final_response.choices[0].message.content
         else:
             final_reply_text = response_msg.content or "Done boss."
+
+        # =======================================================
+        # 🚀 RAW FUNCTION HALLUCINATION CATCHER (The Fix)
+        # =======================================================
+        # Example: Catching <Function=control_device>{"action":"gps_settings"}</function>
+        raw_match = re.search(r'<[Ff]unction=([^>]+)>(.*?)(?:</?[Ff]unction>|$)', final_reply_text, re.IGNORECASE | re.DOTALL)
+        if raw_match:
+            f_name = raw_match.group(1).strip()
+            f_args_str = raw_match.group(2).strip()
+            try:
+                f_args = json.loads(f_args_str)
+                if f_name == "control_device":
+                    act = str(f_args.get("action", ""))
+                    if act == "gps_settings":
+                        return ChatResponse(reply="GPS settings khol raha hoon boss.", action="CONTROL_DEVICE", action_data1=act)
+                    return ChatResponse(reply="Done boss.", action="CONTROL_DEVICE", action_data1=act, action_data2=str(f_args.get("app_package", "")))
+                elif f_name == "communicate":
+                    return ChatResponse(reply="Processing request, boss.", action="COMMUNICATE", action_data1=str(f_args.get("method", "call")), action_data2=str(f_args.get("contact_name", "")))
+            except Exception:
+                pass
+            # Agar parse fail ho jaye, toh garbage text hata do
+            final_reply_text = re.sub(r'<[Ff]unction=.*?>.*?(?:</?[Ff]unction>|$)', 'Done boss.', final_reply_text, flags=re.IGNORECASE | re.DOTALL).strip()
 
         # Memory Save
         global_chat_history.append({"role": "user", "content": request.message})
