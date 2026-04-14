@@ -112,6 +112,12 @@ async def track_location(req: LocationTrackRequest):
             "city": city_name,
             "weather": weather_desc
         })
+
+        # 🚀 AUTO-CLEANUP SHIELD: Database ko kabhi full nahi hone dega!
+        # Agar locations 10,000 se zyada ho jayein, toh sabse purani wali delete kar do
+        if location_col.count_documents({}) > 10000:
+            oldest_record = location_col.find().sort("_id", 1).limit(1)[0]
+            location_col.delete_one({"_id": oldest_record["_id"]})
         
         is_bad_weather = (200 <= weather_id <= 299) or (500 <= weather_id <= 599) or (600 <= weather_id <= 699) or weather_id == 781
         if is_bad_weather:
