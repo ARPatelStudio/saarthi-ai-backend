@@ -1,6 +1,5 @@
 import os
 import logging
-import tempfile
 import json
 import datetime
 import pytz
@@ -21,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-app = FastAPI(title="Saarthi AI Core", version="35.3.0") 
+app = FastAPI(title="Saarthi AI Core", version="35.5.0") 
 
 api_key = os.getenv("GROQ_API_KEY")
 if not api_key:
@@ -47,6 +46,14 @@ class ChatRequest(BaseModel):
     message: str
     android_memory: str = "" 
 
+class LocationTrackRequest(BaseModel):
+    latitude: float
+    longitude: float
+
+class MemoryRequest(BaseModel):
+    key: str
+    value: str
+
 class ChatResponse(BaseModel):
     reply: str
     action: str = "NONE"          
@@ -56,9 +63,33 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (V35.3.0: Hallucination Catcher Active)!"}
+    return {"status": "🟢 Saarthi AI is Online (V35.5.0: Memory Gateway Active)!"}
 
+# =======================================================
+# 🚀 NAYE ENDPOINTS (ANDROID SE MEMORY SAVE AUR FETCH KARNE KE LIYE)
+# =======================================================
+@app.post("/api/save_memory")
+async def save_memory(req: MemoryRequest):
+    try:
+        # Puraani memory update karega ya nayi bana dega
+        memory_col.update_one({"key": req.key}, {"$set": {"value": req.value}}, upsert=True)
+        return {"status": "Memory Saved Boss!"}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/get_memory")
+async def get_memory():
+    try:
+        # MongoDB se saari yaadein nikal kar Android ko dega
+        records = list(memory_col.find({}, {"_id": 0}))
+        mem_str = "\n".join([f"- {r['key']}: {r['value']}" for r in records])
+        return {"memory": mem_str}
+    except Exception as e:
+        return {"memory": ""}
+
+# =======================================================
 # --- TRACKING & WEATHER LOGIC ---
+# =======================================================
 @app.post("/api/track_location")
 async def track_location(req: LocationTrackRequest):
     try:
@@ -124,232 +155,13 @@ def get_live_weather(location: str):
     except Exception as e: return "Weather API mein thoda glitch aaya boss."
 
 saarthi_tools = [
-    {
-        "type": "function",
-        "function": {
-            "name": "perform_web_search",
-            "description": "Search the internet.",
-            "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_live_weather",
-            "description": "Fetch real-time weather.",
-            "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "query_location_history",
-            "description": "Find out where the user was on a specific date or time.",
-            "parameters": {"type": "object", "properties": {"date_query": {"type": "string"}}, "required": ["date_query"]}
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "control_device",
-            "description": "Control hardware, apps, UI, Media, Volume, Vision.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "action": {"type": "string", "enum": ["open_app", "close_app", "youtube_search", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "open_camera", "open_scanner", "set_alarm", "set_timer", "bluetooth_settings", "gps_settings", "quick_share", "vision_scanning", "scan_vision"]},
-                    "app_package": {"type": "string"}
-                },
-                "required": ["action"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "communicate",
-            "description": "Make a phone call or send a WhatsApp message smartly.",
-            "parameters": {"type": "object", "properties": {"method": {"type": "string", "enum": ["call", "whatsapp"]}, "contact_name": {"type": "string"}, "message_text": {"type": "string"}}, "required": ["method", "contact_name"]}
-        }
-    }
+    {"type": "function", "function": {"name": "perform_web_search", "description": "Search the internet.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
+    {"type": "function", "function": {"name": "get_live_weather", "description": "Fetch real-time weather.", "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}}},
+    {"type": "function", "function": {"name": "query_location_history", "description": "Find out where the user was.", "parameters": {"type": "object", "properties": {"date_query": {"type": "string"}}, "required": ["date_query"]}}},
+    {"type": "function", "function": {"name": "control_device", "description": "Control hardware, apps, UI, Media, Volume, Vision.", "parameters": {"type": "object", "properties": {"action": {"type": "string", "enum": ["open_app", "close_app", "youtube_search", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "open_camera", "open_scanner", "set_alarm", "set_timer", "bluetooth_settings", "gps_settings", "quick_share", "vision_scanning", "scan_vision"]}, "app_package": {"type": "string"}}, "required": ["action"]}}},
+    {"type": "function", "function": {"name": "communicate", "description": "Make a phone call or send a WhatsApp.", "parameters": {"type": "object", "properties": {"method": {"type": "string", "enum": ["call", "whatsapp"]}, "contact_name": {"type": "string"}, "message_text": {"type": "string"}}, "required": ["method", "contact_name"]}}}
 ]
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_with_saarthi(request: ChatRequest):
-    global global_chat_history
-    global last_bot_reply
-    
-    # 🚀 Punctuation hata kar string ko ekdum clean banaya
-    raw_msg = request.message.lower()
-    user_msg = re.sub(r'[^\w\s]', '', raw_msg) 
-    
-    if last_bot_reply and last_bot_reply.lower() in user_msg and len(user_msg) > 10:
-        return ChatResponse(reply="...", action="NONE") 
-
-    # =======================================================
-    # 🚀 0.01 SECOND INTERCEPTOR (SUPER-HEARING)
-    # =======================================================
-    
-    # 1. Avatar Interceptor
-    if re.search(r"\b(samne|saamne|samnay|samane|avatar|chehra|bahar)\b", user_msg):
-        return ChatResponse(reply="Aa raha hoon boss!", action="CONTROL_DEVICE", action_data1="open_avatar")
-    
-    if re.search(r"\b(wapas|piche|pichhe|band|close)\b", user_msg):
-        if "avatar" in user_msg or "jao" in user_msg or "karo" in user_msg:
-            return ChatResponse(reply="Main wapas background mein jaa raha hoon boss.", action="CONTROL_DEVICE", action_data1="close_avatar")
-
-    # 2. Volume Interceptor (Instant)
-    if re.search(r"\b(volume|aawaz|awaz)\b", user_msg):
-        nums = re.findall(r'\d+', user_msg)
-        if nums:
-            vol = nums[0]
-            return ChatResponse(reply=f"Volume {vol} percent set kar diya boss.", action="CONTROL_DEVICE", action_data1="volume_set", action_data2=str(vol))
-        elif re.search(r"\b(down|kam|ghata)\b", user_msg):
-            return ChatResponse(reply="Volume kam kar diya.", action="CONTROL_DEVICE", action_data1="volume_down")
-        elif re.search(r"\b(up|bada|badha|tez)\b", user_msg):
-            return ChatResponse(reply="Volume badha diya.", action="CONTROL_DEVICE", action_data1="volume_up")
-        elif re.search(r"\b(mute|band)\b", user_msg):
-            return ChatResponse(reply="Volume mute kar diya.", action="CONTROL_DEVICE", action_data1="volume_mute")
-        elif re.search(r"\b(unmute|kholo)\b", user_msg):
-            return ChatResponse(reply="Volume unmute kar diya.", action="CONTROL_DEVICE", action_data1="volume_unmute")
-
-    # =======================================================
-    # 🚀 SMART 70B AI PROCESSING & HALLUCINATION FIX
-    # =======================================================
-    try:
-        ist_timezone = pytz.timezone('Asia/Kolkata')
-        live_time = datetime.datetime.now(ist_timezone).strftime('%A, %d %B %Y, %I:%M %p')
-        memory_context = f"\n[Android GPS/Memory: {request.android_memory}]"
-        
-        # =======================================================
-        # 🚀 THE HUMAN SOUL PROMPT (No Robotic Language)
-        # =======================================================
-        system_prompt = f"""Tumhara naam Jarvis hai. Tum ek AI nahi, balki ek asli insaan aur mere sabse acche dost ho.
-        CRITICAL PERSONALITY RULES:
-        1. BAAT KARNE KA TAREEQA: Ekdum natural, casual aur dosto wala hona chahiye (Hinglish mein). 
-        2. HUMAN TOUCH: Beech-beech mein "Arre boss", "Dekho", "Yaar", "Haan haan", "Umm", "Sahi kaha" jaise shabdo ka use karo.
-        3. CHUTKULE / GOSSIP: Agar main mazaak karu ya chutkula mangu, toh ekdum energy aur hasi ke expression ke saath sunao.
-        4. LAMBA BHASHAN NAHI: Jawaab 1 se 3 line ke beech rakho taaki natural lage. Robotic format (jaise 1., 2., 3. points) ka use bilkul mat karo jab tak manga na jaye.
-        
-        TOOL RULES:
-        - ONLY use explicitly provided tools. NEVER invent non-existent tools.
-        - App kholne ya Phone ka kaam bole tabhi Tools use karo. Normal chat bina tool ke karo.
-        Time: {live_time}
-        Context: {memory_context}"""
-        
-        messages = [{"role": "system", "content": system_prompt}]
-        messages.extend(global_chat_history[-4:]) 
-        messages.append({"role": "user", "content": request.message})
-
-        # 🚀 70B Versatile Engine
-        chat_completion = await client.chat.completions.create(
-            model="llama-3.3-70b-versatile", messages=messages, tools=saarthi_tools, tool_choice="auto", temperature=0.7, max_tokens=150
-        )
-        
-        response_msg = chat_completion.choices[0].message
-        tool_calls = response_msg.tool_calls
-
-        final_reply_text = ""
-        action_type = "NONE"
-        act_d1 = ""
-        act_d2 = ""
-
-        if tool_calls:
-            tool_call = tool_calls[0]
-            func_name = tool_call.function.name
-            try: func_args = json.loads(tool_call.function.arguments)
-            except: func_args = {}
-
-            if func_name == "control_device":
-                action = str(func_args.get("action", ""))
-                if action in ["vision_scanning", "scan_vision"]: action = "open_scanner"
-                return ChatResponse(reply="Processing request, boss.", action="CONTROL_DEVICE", action_data1=action, action_data2=str(func_args.get("app_package", "")))
-            
-            elif func_name == "communicate":
-                return ChatResponse(reply="Processing request, boss.", action="COMMUNICATE", action_data1=str(func_args.get("method", "call")), action_data2=str(func_args.get("contact_name", "")))
-            
-            elif func_name in ["perform_web_search", "get_live_weather", "query_location_history"]:
-                if func_name == "perform_web_search": data = perform_web_search(func_args.get("query", user_msg))
-                elif func_name == "get_live_weather": data = get_live_weather(func_args.get("location", "India"))
-                else: data = query_location_history(func_args.get("date_query", "today"))
-
-                messages.append(response_msg)
-                messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": func_name, "content": data})
-                
-                final_response = await client.chat.completions.create(model="llama-3.3-70b-versatile", messages=messages, temperature=0.7, max_tokens=150)
-                final_reply_text = final_response.choices[0].message.content
-        else:
-            final_reply_text = response_msg.content or "Done boss."
-
-        # =======================================================
-        # 🚀 RAW FUNCTION HALLUCINATION CATCHER (The Fix)
-        # =======================================================
-        # Example: Catching <Function=control_device>{"action":"gps_settings"}</function>
-        raw_match = re.search(r'<[Ff]unction=([^>]+)>(.*?)(?:</?[Ff]unction>|$)', final_reply_text, re.IGNORECASE | re.DOTALL)
-        if raw_match:
-            f_name = raw_match.group(1).strip()
-            f_args_str = raw_match.group(2).strip()
-            try:
-                f_args = json.loads(f_args_str)
-                if f_name == "control_device":
-                    act = str(f_args.get("action", ""))
-                    if act == "gps_settings":
-                        return ChatResponse(reply="GPS settings khol raha hoon boss.", action="CONTROL_DEVICE", action_data1=act)
-                    return ChatResponse(reply="Done boss.", action="CONTROL_DEVICE", action_data1=act, action_data2=str(f_args.get("app_package", "")))
-                elif f_name == "communicate":
-                    return ChatResponse(reply="Processing request, boss.", action="COMMUNICATE", action_data1=str(f_args.get("method", "call")), action_data2=str(f_args.get("contact_name", "")))
-            except Exception:
-                pass
-            # Agar parse fail ho jaye, toh garbage text hata do
-            final_reply_text = re.sub(r'<[Ff]unction=.*?>.*?(?:</?[Ff]unction>|$)', 'Done boss.', final_reply_text, flags=re.IGNORECASE | re.DOTALL).strip()
-
-        # Memory Save
-        global_chat_history.append({"role": "user", "content": request.message})
-        global_chat_history.append({"role": "assistant", "content": final_reply_text})
-        
-        last_bot_reply = final_reply_text
-        return ChatResponse(reply=final_reply_text, action=action_type, action_data1=act_d1, action_data2=act_d2)
-
-    except Exception as e:
-        print(f"CRITICAL ERROR: {str(e)}") 
-        return ChatResponse(reply="Boss, server par thodi technical dikkat aayi.", action="NONE")
-
-@app.post("/api/vision")
-async def vision_analysis(file: UploadFile = File(...), prompt: str = Form("Is photo mein kya hai? Detail mein Hindi/Hinglish mein batao.")):
-    try:
-        contents = await file.read()
-        base64_image = base64.b64encode(contents).decode('utf-8')
-        chat_completion = await client.chat.completions.create(
-            model="llama-3.2-11b-vision-preview",
-            messages=[{"role": "user", "content": [{"type": "text", "text": prompt + " Answer in short 2 lines."}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}],
-            temperature=0.5, max_tokens=256,
-        )
-        return {"reply": chat_completion.choices[0].message.content}
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/transcribe")
-async def transcribe_audio(file: UploadFile = File(...)):
-    temp_file_path = ""
-    try:
-        contents = await file.read()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as temp_audio:
-            temp_audio.write(contents)
-            temp_file_path = temp_audio.name
-        with open(temp_file_path, "rb") as audio_file:
-            # 🚀 FIX 3: Strong prompt so Whisper understands Hinglish
-            transcription = await client.audio.transcriptions.create(
-                file=(file.filename, audio_file.read()), model="whisper-large-v3", language="hi", 
-                prompt="Haan boss, bataiye. Samne aao. Wapas jao. Volume tez karo.", response_format="json"
-            )
-        os.remove(temp_file_path)
-        raw_text = transcription.text.strip()
-        
-        # 🚀 FIX 4: Aggressive Noise Filter
-        bad_phrases = ["Thank you for watching.", "Thanks for watching", "Thank you.", "Subscribe", "watching.", "Ambe Tu Hai", "Please subscribe", "you", "for"]
-        for bad_word in bad_phrases:
-            raw_text = re.sub(re.escape(bad_word), "", raw_text, flags=re.IGNORECASE).strip()
-            
-        if not raw_text or len(raw_text) < 2: return {"text": "[error]"}
-        return {"text": raw_text}
-    except Exception as e:
-        if os.path.exists(temp_file_path): os.remove(temp_file_path)
-        raise HTTPException(status_code=500, detail=str(e))
+    return ChatResponse(reply="I am now handled by Android Native Engine.", action="NONE")
