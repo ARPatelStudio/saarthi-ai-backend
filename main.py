@@ -35,6 +35,7 @@ try:
     db = mongo_client["saarthi_db"]
     location_col = db["location_history"] 
     memory_col = db["permanent_memory"]
+    pc_col = db["device_commands"] # 🚀 NAYA ADD KIYA: PC commands store karne ke liye
     mongo_client.admin.command('ping') 
 except Exception as e:
     logger.error(f"🔴 MongoDB Connection Error: {e}")
@@ -53,6 +54,12 @@ class LocationTrackRequest(BaseModel):
 class MemoryRequest(BaseModel):
     key: str
     value: str
+
+# 🚀 NAYA MODEL ADD KIYA: PC Command request handle karne ke liye
+class PCCommandReq(BaseModel):
+    target: str
+    command: str
+    status: str = "pending"
 
 class ChatResponse(BaseModel):
     reply: str
@@ -86,6 +93,23 @@ async def get_memory():
         return {"memory": mem_str}
     except Exception as e:
         return {"memory": ""}
+
+# =======================================================
+# 🚀 PC CONTROLLER ENDPOINT (NAYA RASTA)
+# =======================================================
+@app.post("/api/pc_command")
+async def pc_command(req: PCCommandReq):
+    try:
+        # Request MongoDB me jayegi jahan se PC Script ise catch karegi
+        pc_col.insert_one({
+            "target": req.target,
+            "command": req.command,
+            "status": req.status,
+            "timestamp": datetime.datetime.now()
+        })
+        return {"success": True, "message": "PC Command queued!"}
+    except Exception as e:
+        return {"error": str(e)}
 
 # =======================================================
 # --- TRACKING & WEATHER LOGIC ---
