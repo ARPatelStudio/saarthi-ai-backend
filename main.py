@@ -88,6 +88,19 @@ async def root():
     return {"status": "🟢 Saarthi AI is Online (V36.0.0: Deep Memory Gateway Active)!"}
 
 # =======================================================
+# 🚀 NAYA ENDPOINT: SYSTEM OTA UPDATE CHECK
+# =======================================================
+@app.get("/api/check_update")
+async def check_update():
+    """Android App yahan se check karegi ki koi naya update aaya hai ya nahi"""
+    return {
+        "latest_version_code": 2,
+        "version_name": "Jarvis Mark 3.0",
+        "changelog": "- Added Ghost Camera\n- Added Omni-Device Control\n- Improved AI Memory",
+        "download_url": "https://aapki-website.com/jarvis_latest.apk"
+    }
+
+# =======================================================
 # 🚀 NAYE ENDPOINTS: DEEP MEMORY (UI & JARVIS KE LIYE)
 # =======================================================
 @app.post("/api/deep_memory/save")
