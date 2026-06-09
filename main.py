@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 from duckduckgo_search import DDGS 
 from pymongo import MongoClient
 import certifi
-from bson import ObjectId  # 🚀 NAYA ADD KIYA: MongoDB document ID ko pehchanne ke liye
+from bson import ObjectId
 
 # Logs Setup
 logging.basicConfig(level=logging.INFO)
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version update kar diya 36.0.0
+# Version update kar diya 36.0.0 (Ultron Swarm Active)
 app = FastAPI(title="Saarthi AI Core", version="36.0.0") 
 
 api_key = os.getenv("GROQ_API_KEY")
@@ -38,7 +38,8 @@ try:
     location_col = db["location_history"] 
     memory_col = db["permanent_memory"]
     pc_col = db["device_commands"]
-    deep_mem_col = db["deep_memory"] # 🚀 NAYA ADD KIYA: Deep Memory (Visual + Text) ke liye
+    deep_mem_col = db["deep_memory"] 
+    pc_status_col = db["pc_status"] # 🚀 NAYA ADD KIYA: Ultron PC Status ke liye
     mongo_client.admin.command('ping') 
 except Exception as e:
     logger.error(f"🔴 MongoDB Connection Error: {e}")
@@ -63,7 +64,7 @@ class PCCommandReq(BaseModel):
     command: str
     status: str = "pending"
 
-# 🚀 NAYE MODELS: Deep Memory ke Data Handle karne ke liye
+# 🚀 NAYE MODELS: Deep Memory & Ultron Data Handle karne ke liye
 class DeepMemorySaveReq(BaseModel):
     mem_type: str # "text" or "visual"
     content: str
@@ -76,6 +77,12 @@ class DeepMemoryActionReq(BaseModel):
     action: str # "delete", "pin", "rename"
     new_name: str = ""
 
+# 🚀 NAYA MODEL: Ultron Swarm PC Status
+class PCStatusReq(BaseModel):
+    battery: int
+    ram: int
+    is_locked: bool
+
 class ChatResponse(BaseModel):
     reply: str
     action: str = "NONE"          
@@ -85,7 +92,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (V36.0.0: Deep Memory Gateway Active)!"}
+    return {"status": "🟢 Saarthi AI is Online (V36.0.0: Deep Memory Gateway & Ultron Swarm Active)!"}
 
 # =======================================================
 # 🚀 NAYA ENDPOINT: SYSTEM OTA UPDATE CHECK
@@ -96,12 +103,47 @@ async def check_update():
     return {
         "latest_version_code": 2,
         "version_name": "Jarvis Mark 3.0",
-        "changelog": "- Added Ghost Camera\n- Added Omni-Device Control\n- Improved AI Memory",
+        "changelog": "- Added Ghost Camera\n- Added Omni-Device Control\n- Improved AI Memory\n- U.L.T.R.O.N. Swarm Added",
         "download_url": "https://aapki-website.com/jarvis_latest.apk"
     }
 
 # =======================================================
-# 🚀 NAYE ENDPOINTS: DEEP MEMORY (UI & JARVIS KE LIYE)
+# 🚀 NAYA ENDPOINT: U.L.T.R.O.N. SWARM NETWORK (PC STATUS)
+# =======================================================
+@app.post("/api/pc_status")
+async def update_pc_status(req: PCStatusReq):
+    """Laptop/PC yahan se apni halat (battery, RAM) update karega"""
+    try:
+        pc_status_col.update_one(
+            {"device": "primary_pc"}, 
+            {"$set": {
+                "battery": req.battery, 
+                "ram": req.ram, 
+                "is_locked": req.is_locked, 
+                "timestamp": datetime.datetime.now()
+            }}, 
+            upsert=True
+        )
+        return {"success": True, "message": "PC Status saved to Swarm"}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/pc_status")
+async def get_pc_status():
+    """Android ka UltronWorker yahan se PC ki halat check karega"""
+    try:
+        status = pc_status_col.find_one({"device": "primary_pc"}, {"_id": 0})
+        if status:
+            status["timestamp"] = str(status["timestamp"])
+            return status
+        else:
+            # Agar PC ne abhi tak data nahi bheja, toh Alert Test karne ke liye Default Data:
+            return {"battery": 12, "ram": 95, "is_locked": False}
+    except Exception as e:
+        return {"battery": 12, "ram": 95, "is_locked": False}
+
+# =======================================================
+# DEEP MEMORY (UI & JARVIS KE LIYE)
 # =======================================================
 @app.post("/api/deep_memory/save")
 async def save_deep_memory(req: DeepMemorySaveReq):
@@ -123,9 +165,8 @@ async def save_deep_memory(req: DeepMemorySaveReq):
 @app.get("/api/deep_memory/get_all")
 async def get_all_deep_memory():
     try:
-        # Pinned messages aur naye messages ko upar dikhayenge
         records = list(deep_mem_col.find().sort("timestamp", -1))
-        for r in records: r["_id"] = str(r["_id"]) # ObjectId ko string mein badalna zaroori hai
+        for r in records: r["_id"] = str(r["_id"]) 
         return {"memories": records}
     except Exception as e: return {"error": str(e)}
 
@@ -265,7 +306,7 @@ def get_live_weather(location: str):
         return f"Live Update: {location} mein abhi temp {response['main']['temp']}°C hai aur mausam '{response['weather'][0]['description']}' jaisa hai."
     except Exception as e: return "Weather API mein thoda glitch aaya boss."
 
-# 🚀 TOOLS UPDATE: Naya search_deep_memory tool add kiya gaya hai
+# 🚀 TOOLS UPDATE
 saarthi_tools = [
     {"type": "function", "function": {"name": "perform_web_search", "description": "Search the internet.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
     {"type": "function", "function": {"name": "get_live_weather", "description": "Fetch real-time weather.", "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}}},
