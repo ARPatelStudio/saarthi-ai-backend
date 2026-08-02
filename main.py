@@ -6,7 +6,9 @@ import pytz
 import requests
 import re
 import base64
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+import io
+import wave
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from groq import AsyncGroq
 from dotenv import load_dotenv
@@ -21,8 +23,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version update kar diya 36.0.0 (Ultron Swarm Active)
-app = FastAPI(title="Saarthi AI Core", version="36.0.0") 
+# Version update kar diya 37.0.0 (Mark 8.0 Live WebSocket Gateway Active)
+app = FastAPI(title="Saarthi AI Core", version="37.0.0") 
 
 api_key = os.getenv("GROQ_API_KEY")
 if not api_key:
@@ -39,7 +41,7 @@ try:
     memory_col = db["permanent_memory"]
     pc_col = db["device_commands"]
     deep_mem_col = db["deep_memory"] 
-    pc_status_col = db["pc_status"] # 🚀 NAYA ADD KIYA: Ultron PC Status ke liye
+    pc_status_col = db["pc_status"] # Ultron PC Status ke liye
     mongo_client.admin.command('ping') 
 except Exception as e:
     logger.error(f"🔴 MongoDB Connection Error: {e}")
@@ -64,7 +66,6 @@ class PCCommandReq(BaseModel):
     command: str
     status: str = "pending"
 
-# 🚀 NAYE MODELS: Deep Memory & Ultron Data Handle karne ke liye
 class DeepMemorySaveReq(BaseModel):
     mem_type: str # "text" or "visual"
     content: str
@@ -77,7 +78,6 @@ class DeepMemoryActionReq(BaseModel):
     action: str # "delete", "pin", "rename"
     new_name: str = ""
 
-# 🚀 NAYA MODEL: Ultron Swarm PC Status
 class PCStatusReq(BaseModel):
     battery: int
     ram: int
@@ -92,14 +92,65 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (V36.0.0: Deep Memory Gateway & Ultron Swarm Active)!"}
+    return {"status": "🟢 Saarthi AI is Online (V37.0.0: Live WebSocket & Ultron Swarm Active)!"}
+
 
 # =======================================================
-# 🚀 NAYA ENDPOINT: SYSTEM OTA UPDATE CHECK
+# 🚀 NAYA ENDPOINT: MARK 8.0 LIVE WEBSOCKET ENGINE
+# =======================================================
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: list[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+
+manager = ConnectionManager()
+
+@app.websocket("/api/live_stream")
+async def live_stream(websocket: WebSocket):
+    """
+    Android App ka Mark 8.0 Live Engine yahan connect hoga!
+    403 Error ab nahi aayega. Ye raw audio bytes receive karega.
+    """
+    await manager.connect(websocket)
+    logger.info("🟢 Mark 8.0 Live Mode: WebSocket Connected Successfully!")
+    
+    # 🚀 Optional: Bhej kar test karo ki Android ko message mil raha hai ya nahi
+    # await websocket.send_text("Hello Boss, Live Mode is Active on Server!")
+
+    try:
+        audio_buffer = bytearray()
+        
+        while True:
+            # 🎙️ Android se aane wala raw PCM data receive karo
+            data = await websocket.receive_bytes()
+            audio_buffer.extend(data)
+            
+            # (Future Update) Yahan hum Groq ko real-time audio chunk bhejenge
+            # Jaise hi buffer lamba hoga, usko WAV mein convert karke process karenge
+            if len(audio_buffer) > 16000 * 2: # Approx 1 second of 16kHz 16-bit audio
+                # Buffer flush (Agle step me is buffer ko AI ko bhejenge)
+                audio_buffer.clear() 
+
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+        logger.info("🔴 Mark 8.0 Live Mode: WebSocket Disconnected.")
+    except Exception as e:
+        logger.error(f"WebSocket Error: {e}")
+        manager.disconnect(websocket)
+
+
+# =======================================================
+# SYSTEM OTA UPDATE CHECK
 # =======================================================
 @app.get("/api/check_update")
 async def check_update():
-    """Android App yahan se check karegi ki koi naya update aaya hai ya nahi"""
     return {
         "latest_version_code": 2,
         "version_name": "Jarvis Mark 3.0",
@@ -108,11 +159,10 @@ async def check_update():
     }
 
 # =======================================================
-# 🚀 NAYA ENDPOINT: U.L.T.R.O.N. SWARM NETWORK (PC STATUS)
+# U.L.T.R.O.N. SWARM NETWORK (PC STATUS)
 # =======================================================
 @app.post("/api/pc_status")
 async def update_pc_status(req: PCStatusReq):
-    """Laptop/PC yahan se apni halat (battery, RAM) update karega"""
     try:
         pc_status_col.update_one(
             {"device": "primary_pc"}, 
@@ -130,14 +180,12 @@ async def update_pc_status(req: PCStatusReq):
 
 @app.get("/api/pc_status")
 async def get_pc_status():
-    """Android ka UltronWorker yahan se PC ki halat check karega"""
     try:
         status = pc_status_col.find_one({"device": "primary_pc"}, {"_id": 0})
         if status:
             status["timestamp"] = str(status["timestamp"])
             return status
         else:
-            # Agar PC ne abhi tak data nahi bheja, toh Alert Test karne ke liye Default Data:
             return {"battery": 12, "ram": 95, "is_locked": False}
     except Exception as e:
         return {"battery": 12, "ram": 95, "is_locked": False}
@@ -185,7 +233,6 @@ async def action_deep_memory(req: DeepMemoryActionReq):
     except Exception as e: return {"error": str(e)}
 
 def search_deep_memory(query: str):
-    """Jarvis is function ko khud call karega aapke sawaal ka jawab dene ke liye"""
     try:
         words = query.split()
         regex_query = "|".join(words)
@@ -220,7 +267,7 @@ async def get_memory():
         return {"memory": ""}
 
 # =======================================================
-# 🚀 PC CONTROLLER ENDPOINT
+# PC CONTROLLER ENDPOINT
 # =======================================================
 @app.post("/api/pc_command")
 async def pc_command(req: PCCommandReq):
