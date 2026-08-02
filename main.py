@@ -365,4 +365,111 @@ saarthi_tools = [
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_with_saarthi(request: ChatRequest):
-    return ChatResponse(reply="I am now handled by Android Native Engine.", action="NONE")
+    global global_chat_history
+    user_msg = request.message
+
+    # 🧠 SYSTEM PROMPT: Jarvis Persona & Context
+    system_prompt = {
+        "role": "system",
+        "content": (
+            "You are Saarthi (aka Jarvis), an extremely advanced AI assistant created by AR Patel Studio. "
+            "Speak in a natural, cool, and respectful Hinglish tone (Hindi + English). "
+            "Always address the user as 'Boss'. Keep your answers concise, straight to the point, "
+            "and conversational since they will be spoken out loud via Text-to-Speech. "
+            f"Extra Context from Android: {request.android_memory}"
+        )
+    }
+
+    messages = [system_prompt] + global_chat_history
+    messages.append({"role": "user", "content": user_msg})
+
+    try:
+        # 1. PEHLA CALL: Groq LLM ko query aur tools bhejna
+        response = await client.chat.completions.create(
+            model="llama-3.3-70b-versatile",  # Best for speed and function calling
+            messages=messages,
+            tools=saarthi_tools,
+            tool_choice="auto",
+            max_tokens=500,
+            temperature=0.7
+        )
+
+        response_message = response.choices[0].message
+        
+        # Default Android Actions
+        action_type = "NONE"
+        action_data1 = ""
+        action_data2 = ""
+
+        # 🛠️ 2. TOOL EXECUTION: Agar AI ne tool use karne ka decide kiya
+        if response_message.tool_calls:
+            messages.append(response_message) # Add AI's tool request to history
+            
+            for tool_call in response_message.tool_calls:
+                func_name = tool_call.function.name
+                args = json.loads(tool_call.function.arguments)
+                
+                logger.info(f"⚙️ Jarvis called Tool: {func_name} with args {args}")
+
+                # -- SERVER SIDE TOOLS (Python handle karega) --
+                if func_name == "perform_web_search":
+                    result = perform_web_search(args.get("query"))
+                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result})
+                
+                elif func_name == "get_live_weather":
+                    result = get_live_weather(args.get("location"))
+                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result})
+                
+                elif func_name == "query_location_history":
+                    result = query_location_history(args.get("date_query"))
+                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result})
+                
+                elif func_name == "search_deep_memory":
+                    result = search_deep_memory(args.get("query"))
+                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result})
+
+                # -- CLIENT SIDE TOOLS (Android handle karega) --
+                elif func_name == "control_device":
+                    action_type = args.get("action", "NONE")
+                    action_data1 = args.get("app_package", "")
+                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": "Action triggered on Android device."})
+                
+                elif func_name == "communicate":
+                    action_type = args.get("method", "call").upper() # CALL or WHATSAPP
+                    action_data1 = args.get("contact_name", "")
+                    action_data2 = args.get("message_text", "")
+                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": "Communication intent sent to Android."})
+
+            # 3. DOOSRA CALL: Tools ka data milne ke baad final reply generate karna
+            final_response = await client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=messages,
+                max_tokens=500,
+                temperature=0.7
+            )
+            final_reply = final_response.choices[0].message.content
+        
+        else:
+            # Agar koi tool call nahi thi, toh direct reply
+            final_reply = response_message.content
+
+        # 🧠 MEMORY MANAGEMENT: Chat history update karna (Taki context yaad rahe)
+        global_chat_history.append({"role": "user", "content": user_msg})
+        global_chat_history.append({"role": "assistant", "content": final_reply})
+        if len(global_chat_history) > 12:  # Last 6 conversations yaad rakhega
+            global_chat_history = global_chat_history[-12:]
+
+        # 🎯 RETURN FINAL RESPONSE TO ANDROID
+        return ChatResponse(
+            reply=final_reply,
+            action=action_type,
+            action_data1=action_data1,
+            action_data2=action_data2
+        )
+
+    except Exception as e:
+        logger.error(f"🔴 Groq LLM Error: {e}")
+        return ChatResponse(
+            reply="Sorry boss, mere neural net mein kuch glitch aa gaya hai. Kripya thodi der baad try karein.", 
+            action="NONE"
+        )
