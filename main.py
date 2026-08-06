@@ -27,8 +27,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version update kar diya 38.0.0 (Unified REST + WebSocket VAD Core)
-app = FastAPI(title="Saarthi AI Core", version="38.0.0") 
+# Version update kar diya 39.0.0 (Mark 9.0: True Multimodal Vision Active)
+app = FastAPI(title="Saarthi AI Core", version="39.0.0") 
 
 # CORS Middleware (Cross-device connectivity ke liye)
 app.add_middleware(
@@ -55,14 +55,13 @@ try:
     memory_col = db["permanent_memory"]
     pc_col = db["device_commands"]
     deep_mem_col = db["deep_memory"] 
-    pc_status_col = db["pc_status"] # Ultron PC Status ke liye
+    pc_status_col = db["pc_status"] 
     mongo_client.admin.command('ping') 
     logger.info("🟢 MongoDB Connected Successfully!")
 except Exception as e:
     logger.error(f"🔴 MongoDB Connection Error: {e}")
 
 global_chat_history = []
-last_bot_reply = "" 
 
 # 📦 PYDANTIC MODELS
 class ChatRequest(BaseModel):
@@ -83,7 +82,7 @@ class PCCommandReq(BaseModel):
     status: str = "pending"
 
 class DeepMemorySaveReq(BaseModel):
-    mem_type: str # "text" or "visual"
+    mem_type: str 
     content: str
     location: str
     date: str
@@ -91,7 +90,7 @@ class DeepMemorySaveReq(BaseModel):
 
 class DeepMemoryActionReq(BaseModel):
     mem_id: str
-    action: str # "delete", "pin", "rename"
+    action: str 
     new_name: str = ""
 
 class PCStatusReq(BaseModel):
@@ -108,7 +107,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi Omni-Core is Online (V38.0.0)!", "service": "Unified REST & WebSocket VAD Active"}
+    return {"status": "🟢 Saarthi Omni-Core is Online (V39.0.0)!", "service": "Multimodal Vision Cortex Active"}
 
 # =======================================================
 # 🌐 WEBSOCKET CONNECTION MANAGER
@@ -136,9 +135,9 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 # =======================================================
-# 🧠 CENTRALIZED LLM LOGIC (REST aur WebSocket dono use karenge)
+# 🧠 CENTRALIZED LLM LOGIC (TEXT + VISION MULTIMODAL)
 # =======================================================
-async def generate_jarvis_response(user_msg: str, android_memory: str = "") -> dict:
+async def generate_jarvis_response(user_msg: str, android_memory: str = "", image_base64: str = None) -> dict:
     global global_chat_history
     
     system_prompt = {
@@ -146,80 +145,94 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "") -> d
         "content": (
             "You are Saarthi (aka Jarvis), an extremely advanced AI assistant created by AR Patel Studio. "
             "Speak in a natural, cool, and respectful Hinglish tone (Hindi + English). "
-            "Always address the user as 'Boss'. Keep your answers concise, straight to the point, "
-            "and conversational since they will be spoken out loud via Text-to-Speech. "
+            "Always address the user as 'Boss'. Keep your answers concise, straight to the point. "
             f"Extra Context from Android: {android_memory}"
         )
     }
 
     messages = [system_prompt] + global_chat_history
-    messages.append({"role": "user", "content": user_msg})
-
     action_type = "NONE"
     action_data1 = ""
     action_data2 = ""
 
     try:
-        # 1. Pehla Call: Groq LLM (Tools Check)
-        response = await client.chat.completions.create(
-            model="llama-3.3-70b-versatile",  
-            messages=messages,
-            tools=saarthi_tools,
-            tool_choice="auto",
-            max_tokens=500,
-            temperature=0.7
-        )
-
-        response_message = response.choices[0].message
-        
-        # 2. Tool Execution Logic
-        if response_message.tool_calls:
-            messages.append(response_message) 
+        # 👁️ MULTIMODAL SWITCHER (Vision vs Text Mode)
+        if image_base64:
+            logger.info("👁️ Vision payload detected! Switching to Llama-3.2-90B-Vision model.")
+            # Groq Vision Model Syntax
+            messages.append({
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": user_msg},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}}
+                ]
+            })
             
-            for tool_call in response_message.tool_calls:
-                func_name = tool_call.function.name
-                args = json.loads(tool_call.function.arguments)
-                logger.info(f"⚙️ Jarvis called Tool: {func_name} with args {args}")
-
-                if func_name == "perform_web_search":
-                    result = perform_web_search(args.get("query"))
-                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result})
-                
-                elif func_name == "get_live_weather":
-                    result = get_live_weather(args.get("location"))
-                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result})
-                
-                elif func_name == "query_location_history":
-                    result = query_location_history(args.get("date_query"))
-                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result})
-                
-                elif func_name == "search_deep_memory":
-                    result = search_deep_memory(args.get("query"))
-                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result})
-
-                elif func_name == "control_device":
-                    action_type = args.get("action", "NONE")
-                    action_data1 = args.get("app_package", "")
-                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": "Action triggered on Android."})
-                
-                elif func_name == "communicate":
-                    action_type = args.get("method", "call").upper()
-                    action_data1 = args.get("contact_name", "")
-                    action_data2 = args.get("message_text", "")
-                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": "Communication intent sent to Android."})
-
-            # Final Answer generate karna tools ka data aane ke baad
-            final_response = await client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+            # 🚀 Vision model ko direct hit karenge (Tools ignore for Vision currently)
+            response = await client.chat.completions.create(
+                model="llama-3.2-90b-vision-preview",  
                 messages=messages,
+                max_tokens=800,
+                temperature=0.7
+            )
+            final_reply = response.choices[0].message.content
+            
+        else:
+            # 💬 Normal Text Mode (With Tools)
+            messages.append({"role": "user", "content": user_msg})
+            
+            response = await client.chat.completions.create(
+                model="llama-3.3-70b-versatile",  
+                messages=messages,
+                tools=saarthi_tools,
+                tool_choice="auto",
                 max_tokens=500,
                 temperature=0.7
             )
-            final_reply = final_response.choices[0].message.content
-        else:
-            final_reply = response_message.content
 
-        # 3. Context Memory Update
+            response_message = response.choices[0].message
+            
+            if response_message.tool_calls:
+                messages.append(response_message) 
+                
+                for tool_call in response_message.tool_calls:
+                    func_name = tool_call.function.name
+                    args = json.loads(tool_call.function.arguments)
+                    logger.info(f"⚙️ Jarvis called Tool: {func_name} with args {args}")
+
+                    if func_name == "perform_web_search":
+                        result = perform_web_search(args.get("query"))
+                        messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result})
+                    elif func_name == "get_live_weather":
+                        result = get_live_weather(args.get("location"))
+                        messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result})
+                    elif func_name == "query_location_history":
+                        result = query_location_history(args.get("date_query"))
+                        messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result})
+                    elif func_name == "search_deep_memory":
+                        result = search_deep_memory(args.get("query"))
+                        messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result})
+                    elif func_name == "control_device":
+                        action_type = args.get("action", "NONE")
+                        action_data1 = args.get("app_package", "")
+                        messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": "Action triggered on Android."})
+                    elif func_name == "communicate":
+                        action_type = args.get("method", "call").upper()
+                        action_data1 = args.get("contact_name", "")
+                        action_data2 = args.get("message_text", "")
+                        messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": "Communication intent sent to Android."})
+
+                final_response = await client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=messages,
+                    max_tokens=500,
+                    temperature=0.7
+                )
+                final_reply = final_response.choices[0].message.content
+            else:
+                final_reply = response_message.content
+
+        # 3. Context Memory Update (Image ko history me save nahi karenge warna token overload ho jayega)
         global_chat_history.append({"role": "user", "content": user_msg})
         global_chat_history.append({"role": "assistant", "content": final_reply})
         if len(global_chat_history) > 12: 
@@ -244,39 +257,29 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "") -> d
         }
 
 # =======================================================
-# 🎙️ VAD & BUFFER LOGIC FOR WEBSOCKET
+# 🎙️ VAD & VISUAL BUFFER LOGIC FOR WEBSOCKET
 # =======================================================
 import time
 
 def get_max_amplitude(pcm_bytes):
-    """
-    Yeh function raw bytes (PCM) ki aawaz (volume) measure karta hai.
-    Taaki hum pata laga sakein ki user bol raha hai ya shant hai.
-    """
     count = len(pcm_bytes) // 2
-    if count == 0:
-        return 0
-    # struct format '<' (little-endian), 'h' (16-bit integer)
+    if count == 0: return 0
     samples = struct.unpack(f"<{count}h", pcm_bytes[:count*2])
     return max(abs(s) for s in samples)
 
-
 @app.websocket("/ws/live_chat")
 async def live_chat_endpoint(websocket: WebSocket):
-    """
-    THE NEW OMNI-ENGINE WEBSOCKET
-    Ye Android se continuously audio lega, buffer karega, aur shanti (silence) 
-    hone par ek single Groq API call marega (No Spam, Key Saved!).
-    """
     await manager.connect(websocket)
     
     audio_buffer = bytearray()
     is_speaking = False
     last_voice_time = time.time()
     
-    # ⚙️ VAD Settings (Aap inko future me adjust kar sakte hain)
-    SILENCE_THRESHOLD = 1500     # Volume level trigger point
-    MAX_SILENCE_DURATION = 1.5   # Kitne second chup rehne par send karega
+    # 👁️ SERVER SIDE VISUAL BUFFER
+    latest_received_image = None 
+    
+    SILENCE_THRESHOLD = 1500     
+    MAX_SILENCE_DURATION = 1.5   
     
     try:
         while True:
@@ -298,6 +301,13 @@ async def live_chat_endpoint(websocket: WebSocket):
 
             elif msg_type == "audio_stream":
                 b64_audio = payload.get("data")
+                b64_image = payload.get("image_data")
+                
+                # Agar nayi image aayi hai, toh server memory me update kar do
+                if b64_image:
+                    latest_received_image = b64_image
+                    logger.info("📸 Server visual buffer updated with latest frame.")
+                
                 if b64_audio:
                     pcm_bytes = base64.b64decode(b64_audio)
                     amplitude = get_max_amplitude(pcm_bytes)
@@ -307,16 +317,12 @@ async def live_chat_endpoint(websocket: WebSocket):
                         is_speaking = True
                         last_voice_time = time.time()
                     else:
-                        # User abhi shant (silent) hai
                         if is_speaking and (time.time() - last_voice_time > MAX_SILENCE_DURATION):
                             is_speaking = False
                             
-                            # 1.5 sec chup rehne ke baad, check karo recording choti toh nahi thi (noise/glitch)
-                            # 16kHz * 2 bytes = 32000 bytes/sec. Minimum 0.5 sec bolna zaruri hai.
                             if len(audio_buffer) > 16000:
-                                logger.info(f"🎙️ VAD Triggered! (Silence detected). Processing {len(audio_buffer)} bytes.")
+                                logger.info(f"🎙️ VAD Triggered! Processing voice + image if any.")
                                 
-                                # WAV file RAM me banayenge
                                 wav_io = io.BytesIO()
                                 with wave.open(wav_io, 'wb') as wav_file:
                                     wav_file.setnchannels(1)
@@ -324,12 +330,9 @@ async def live_chat_endpoint(websocket: WebSocket):
                                     wav_file.setframerate(16000)
                                     wav_file.writeframes(audio_buffer)
                                 wav_io.seek(0)
-                                
-                                # Buffer turant clear kar do naye sawaal ke liye
                                 audio_buffer.clear()
                                 
                                 try:
-                                    # GROQ Whisper API (Speech to Text)
                                     file_tuple = ("audio.wav", wav_io.read(), "audio/wav")
                                     transcription = await client.audio.transcriptions.create(
                                         file=file_tuple,
@@ -340,21 +343,32 @@ async def live_chat_endpoint(websocket: WebSocket):
                                     
                                     if user_text:
                                         logger.info(f"🗣️ User Said (Live): {user_text}")
-                                        # Central LLM Brain ko pass karo
-                                        response_data = await generate_jarvis_response(user_text)
-                                        # Android ko wapas bhej do
+                                        
+                                        # 🚀 CALLING LLM (Sending Text + Image)
+                                        response_data = await generate_jarvis_response(
+                                            user_msg=user_text, 
+                                            image_base64=latest_received_image
+                                        )
+                                        
+                                        # Image use ho gayi, RAM se clear kar do taaki agli baar confuse na ho
+                                        latest_received_image = None
+                                        
                                         await manager.send_json(response_data, websocket)
                                 except Exception as e:
                                     logger.error(f"🔴 Whisper STT Error: {e}")
                             else:
-                                # Agar audio buffer bohot chota tha, toh delete kardo (Faltu API hit mat karo)
                                 audio_buffer.clear()
 
             elif msg_type == "text_command":
                 user_text = payload.get("data")
+                b64_image = payload.get("image_data")
+                
                 if user_text:
                     logger.info(f"💬 Text Command (Live): {user_text}")
-                    response_data = await generate_jarvis_response(user_text)
+                    response_data = await generate_jarvis_response(
+                        user_msg=user_text, 
+                        image_base64=b64_image
+                    )
                     await manager.send_json(response_data, websocket)
 
     except WebSocketDisconnect:
@@ -366,13 +380,10 @@ async def live_chat_endpoint(websocket: WebSocket):
 
 
 # =======================================================
-# 🌐 OLD REST ENDPOINT (For Traditional Android Fallback)
+# 🌐 OLD REST ENDPOINT & UTILS (Intact and Safe)
 # =======================================================
 @app.post("/chat", response_model=ChatResponse)
 async def chat_with_saarthi(request: ChatRequest):
-    """
-    Agar WebSocket down ho jaye, toh Android yahan se REST call karke answers mang sakta hai.
-    """
     res = await generate_jarvis_response(request.message, request.android_memory)
     return ChatResponse(
         reply=res["reply"],
@@ -382,10 +393,6 @@ async def chat_with_saarthi(request: ChatRequest):
         action_data3=""
     )
 
-
-# =======================================================
-# UTILS & TOOLS (Intact and Safe)
-# =======================================================
 @app.get("/api/check_update")
 async def check_update():
     return {
@@ -468,9 +475,7 @@ def search_deep_memory(query: str):
         words = query.split()
         regex_query = "|".join(words)
         records = list(deep_mem_col.find({"content": {"$regex": regex_query, "$options": "i"}}).sort("timestamp", -1).limit(5))
-        
         if not records: return "Deep memory mein is se judi koi jankari nahi mili boss."
-        
         mem_str = "Deep Memory Results:\n"
         for r in records:
             mem_str += f"- [{r['type'].upper()}] Date: {r['date']}, Time: {r['time']}, Location: {r['location']}. Detail: {r['content']}\n"
@@ -579,7 +584,7 @@ saarthi_tools = [
     {"type": "function", "function": {"name": "perform_web_search", "description": "Search the internet.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
     {"type": "function", "function": {"name": "get_live_weather", "description": "Fetch real-time weather.", "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}}},
     {"type": "function", "function": {"name": "query_location_history", "description": "Find out where the user was.", "parameters": {"type": "object", "properties": {"date_query": {"type": "string"}}, "required": ["date_query"]}}},
-    {"type": "function", "function": {"name": "search_deep_memory", "description": "Search user's permanent Deep Memory to answer questions about past events, items, or visual memories.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
+    {"type": "function", "function": {"name": "search_deep_memory", "description": "Search permanent Deep Memory.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
     {"type": "function", "function": {"name": "control_device", "description": "Control hardware, apps, UI, Media, Volume, Vision.", "parameters": {"type": "object", "properties": {"action": {"type": "string", "enum": ["open_app", "close_app", "youtube_search", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "open_camera", "open_scanner", "set_alarm", "set_timer", "bluetooth_settings", "gps_settings", "quick_share", "vision_scanning", "scan_vision"]}, "app_package": {"type": "string"}}, "required": ["action"]}}},
     {"type": "function", "function": {"name": "communicate", "description": "Make a phone call or send a WhatsApp.", "parameters": {"type": "object", "properties": {"method": {"type": "string", "enum": ["call", "whatsapp"]}, "contact_name": {"type": "string"}, "message_text": {"type": "string"}}, "required": ["method", "contact_name"]}}}
 ]
