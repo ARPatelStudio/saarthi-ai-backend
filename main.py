@@ -24,24 +24,25 @@ import cloudinary
 import cloudinary.uploader
 
 # ==========================================
+# 🪵 LOGS SETUP (Sabse pehle initialize karna zaroori hai)
+# ==========================================
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
+
+load_dotenv()
+
+# ==========================================
 # 🧠 VECTOR DB & NEURAL EMBEDDINGS ENGINE
 # ==========================================
 try:
     from pinecone import Pinecone
     from sentence_transformers import SentenceTransformer
-    # Loading the 384-dimension embedding model
     embed_model = SentenceTransformer('all-MiniLM-L6-v2')
     logger.info("🟢 SentenceTransformer (all-MiniLM-L6-v2) Loaded Successfully!")
 except Exception as embed_err:
     embed_model = None
     Pinecone = None
     logger.warning(f"⚠️ Vector Engine Load Warning: {embed_err}")
-
-# Logs Setup
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
-
-load_dotenv()
 
 # Cloudinary Configuration
 cloudinary.config(
@@ -62,8 +63,8 @@ if pc_api_key and Pinecone:
     except Exception as pc_err:
         logger.error(f"🔴 Pinecone Init Error: {pc_err}")
 
-# Version update kar diya 42.0.0 (Mark 12.0: Neural Vector Embedding Core Active)
-app = FastAPI(title="Saarthi AI Core", version="42.0.0") 
+# Version update kar diya 42.0.2 (Mark 12.0: Clean Merge & Logger Fixed)
+app = FastAPI(title="Saarthi AI Core", version="42.0.2") 
 
 # CORS Middleware (Cross-device connectivity ke liye)
 app.add_middleware(
@@ -142,7 +143,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi Omni-Core is Online (V42.0.0)!", "service": "Pinecone Neural Vector Core Active"}
+    return {"status": "🟢 Saarthi Omni-Core is Online (V42.0.2)!", "service": "Pinecone Neural Vector Core Active"}
 
 # =======================================================
 # 🌐 WEBSOCKET CONNECTION MANAGER
@@ -209,7 +210,6 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
             )
             final_reply = response.choices[0].message.content
             
-            # Simple fallback intent detection for saving vision memory when using the vision model
             if any(k in user_msg.lower() for k in ["save", "yaad", "remember", "capture", "keep"]):
                 action_type = "SAVE_VISION"
                 action_data1 = "User requested vision save"
@@ -297,6 +297,8 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
 # =======================================================
 # 🎙️ VAD & VISUAL BUFFER LOGIC FOR WEBSOCKET
 # =======================================================
+import time
+
 def get_max_amplitude(pcm_bytes):
     count = len(pcm_bytes) // 2
     if count == 0: return 0
@@ -551,7 +553,6 @@ async def save_deep_memory(req: DeepMemorySaveReq):
             "is_pinned": False
         })
         
-        # Save to Pinecone Vector DB
         if pc_index and embed_model:
             vector = embed_model.encode(req.content).tolist()
             pc_index.upsert(vectors=[(
@@ -592,7 +593,6 @@ def search_deep_memory(query: str):
     try:
         results_str = []
         
-        # 1. Pinecone Semantic Vector Search
         if pc_index and embed_model:
             try:
                 query_vector = embed_model.encode(query).tolist()
@@ -600,13 +600,11 @@ def search_deep_memory(query: str):
                 for match in pc_res.get('matches', []):
                     score = round(match.get('score', 0), 2)
                     meta = match.get('metadata', {})
-                    # Sirf high confidence match hi lenge
                     if score > 0.4:
                         results_str.append(f"- [SEMANTIC MATCH - Confidence {score}] {meta.get('content', '')}")
             except Exception as ve_err:
                 logger.error(f"Pinecone Search Error: {ve_err}")
 
-        # 2. MongoDB Keyword Fallback
         words = query.split()
         regex_query = "|".join(words)
         records = list(deep_mem_col.find({"content": {"$regex": regex_query, "$options": "i"}}).sort("timestamp", -1).limit(4))
@@ -617,9 +615,7 @@ def search_deep_memory(query: str):
         if not results_str: 
             return "Deep memory mein is se judi koi jankari nahi mili boss."
             
-        # Remove duplicates
-        unique_results = list(set(results_str))
-        return "Deep Memory Results:\n" + "\n".join(unique_results)
+        return "Deep Memory Results:\n" + "\n".join(list(set(results_str)))
     except Exception as e: 
         return "Memory retrieve karne mein error aaya boss."
 
