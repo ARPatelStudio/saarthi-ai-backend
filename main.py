@@ -20,6 +20,8 @@ from duckduckgo_search import DDGS
 from pymongo import MongoClient
 import certifi
 from bson import ObjectId
+import cloudinary
+import cloudinary.uploader
 
 # Logs Setup
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -27,8 +29,15 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version update kar diya 39.0.0 (Mark 9.0: True Multimodal Vision Active)
-app = FastAPI(title="Saarthi AI Core", version="39.0.0") 
+# Cloudinary Configuration
+cloudinary.config(
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.getenv("CLOUDINARY_API_KEY"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET")
+)
+
+# Version update kar diya 40.0.0 (Mark 10.0: Cloudinary Visual Memory Database Active)
+app = FastAPI(title="Saarthi AI Core", version="40.0.0") 
 
 # CORS Middleware (Cross-device connectivity ke liye)
 app.add_middleware(
@@ -107,7 +116,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi Omni-Core is Online (V39.0.0)!", "service": "Multimodal Vision Cortex Active"}
+    return {"status": "🟢 Saarthi Omni-Core is Online (V40.0.0)!", "service": "Cloudinary Visual Cortex Active"}
 
 # =======================================================
 # 🌐 WEBSOCKET CONNECTION MANAGER
@@ -156,10 +165,9 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
     action_data2 = ""
 
     try:
-        # 👁️ MULTIMODAL SWITCHER (Vision vs Text Mode)
+        # 👁️ MULTIMODAL SWITCHER
         if image_base64:
             logger.info("👁️ Vision payload detected! Switching to Llama-3.2-90B-Vision model.")
-            # Groq Vision Model Syntax
             messages.append({
                 "role": "user",
                 "content": [
@@ -168,7 +176,6 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                 ]
             })
             
-            # 🚀 Vision model ko direct hit karenge (Tools ignore for Vision currently)
             response = await client.chat.completions.create(
                 model="llama-3.2-90b-vision-preview",  
                 messages=messages,
@@ -178,9 +185,7 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
             final_reply = response.choices[0].message.content
             
         else:
-            # 💬 Normal Text Mode (With Tools)
             messages.append({"role": "user", "content": user_msg})
-            
             response = await client.chat.completions.create(
                 model="llama-3.3-70b-versatile",  
                 messages=messages,
@@ -232,7 +237,6 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
             else:
                 final_reply = response_message.content
 
-        # 3. Context Memory Update (Image ko history me save nahi karenge warna token overload ho jayega)
         global_chat_history.append({"role": "user", "content": user_msg})
         global_chat_history.append({"role": "assistant", "content": final_reply})
         if len(global_chat_history) > 12: 
@@ -259,8 +263,6 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
 # =======================================================
 # 🎙️ VAD & VISUAL BUFFER LOGIC FOR WEBSOCKET
 # =======================================================
-import time
-
 def get_max_amplitude(pcm_bytes):
     count = len(pcm_bytes) // 2
     if count == 0: return 0
@@ -303,7 +305,6 @@ async def live_chat_endpoint(websocket: WebSocket):
                 b64_audio = payload.get("data")
                 b64_image = payload.get("image_data")
                 
-                # Agar nayi image aayi hai, toh server memory me update kar do
                 if b64_image:
                     latest_received_image = b64_image
                     logger.info("📸 Server visual buffer updated with latest frame.")
@@ -344,16 +345,43 @@ async def live_chat_endpoint(websocket: WebSocket):
                                     if user_text:
                                         logger.info(f"🗣️ User Said (Live): {user_text}")
                                         
-                                        # 🚀 CALLING LLM (Sending Text + Image)
                                         response_data = await generate_jarvis_response(
                                             user_msg=user_text, 
                                             image_base64=latest_received_image
                                         )
                                         
-                                        # Image use ho gayi, RAM se clear kar do taaki agli baar confuse na ho
+                                        await manager.send_json(response_data, websocket)
+
+                                        # ☁️ CLOUDINARY UPLOAD & MONGODB SAVE LOGIC
+                                        if latest_received_image:
+                                            try:
+                                                logger.info("☁️ Uploading Ghost Frame to Cloudinary...")
+                                                upload_result = cloudinary.uploader.upload(
+                                                    f"data:image/jpeg;base64,{latest_received_image}", 
+                                                    folder="saarthi_vision"
+                                                )
+                                                image_url = upload_result.get("secure_url")
+                                                
+                                                ist_timezone = pytz.timezone('Asia/Kolkata')
+                                                live_time = datetime.datetime.now(ist_timezone)
+                                                
+                                                deep_mem_col.insert_one({
+                                                    "type": "visual",
+                                                    "content": f"User: '{user_text}' | Jarvis: '{response_data['reply']}'",
+                                                    "url": image_url,
+                                                    "custom_name": "Ghost Vision Memory",
+                                                    "location": "Live Context",
+                                                    "date": live_time.strftime('%Y-%m-%d'),
+                                                    "time": live_time.strftime('%I:%M %p'),
+                                                    "timestamp": datetime.datetime.now(),
+                                                    "is_pinned": False
+                                                })
+                                                logger.info(f"✅ Visual Memory saved to Database. URL: {image_url}")
+                                            except Exception as cloud_err:
+                                                logger.error(f"🔴 Cloudinary Save Error: {cloud_err}")
+                                            
                                         latest_received_image = None
                                         
-                                        await manager.send_json(response_data, websocket)
                                 except Exception as e:
                                     logger.error(f"🔴 Whisper STT Error: {e}")
                             else:
@@ -370,6 +398,27 @@ async def live_chat_endpoint(websocket: WebSocket):
                         image_base64=b64_image
                     )
                     await manager.send_json(response_data, websocket)
+                    
+                    if b64_image:
+                        try:
+                            upload_result = cloudinary.uploader.upload(f"data:image/jpeg;base64,{b64_image}", folder="saarthi_vision")
+                            image_url = upload_result.get("secure_url")
+                            ist_timezone = pytz.timezone('Asia/Kolkata')
+                            live_time = datetime.datetime.now(ist_timezone)
+                            deep_mem_col.insert_one({
+                                "type": "visual",
+                                "content": f"User: '{user_text}' | Jarvis: '{response_data['reply']}'",
+                                "url": image_url,
+                                "custom_name": "Manual Vision Request",
+                                "location": "Live Context",
+                                "date": live_time.strftime('%Y-%m-%d'),
+                                "time": live_time.strftime('%I:%M %p'),
+                                "timestamp": datetime.datetime.now(),
+                                "is_pinned": False
+                            })
+                            logger.info(f"✅ Text Visual Memory saved. URL: {image_url}")
+                        except Exception as cloud_err:
+                            logger.error(f"🔴 Cloudinary Save Error: {cloud_err}")
 
     except WebSocketDisconnect:
         logger.warning("⚠️ WebSocket disconnected cleanly by the client.")
@@ -377,7 +426,6 @@ async def live_chat_endpoint(websocket: WebSocket):
     except Exception as e:
         logger.error(f"💀 WebSocket Exception: {e}")
         manager.disconnect(websocket)
-
 
 # =======================================================
 # 🌐 OLD REST ENDPOINT & UTILS (Intact and Safe)
