@@ -23,11 +23,19 @@ from bson import ObjectId
 import cloudinary
 import cloudinary.uploader
 
-# Vector DB Prep
+# ==========================================
+# 🧠 VECTOR DB & NEURAL EMBEDDINGS ENGINE
+# ==========================================
 try:
     from pinecone import Pinecone
-except ImportError:
+    from sentence_transformers import SentenceTransformer
+    # Loading the 384-dimension embedding model
+    embed_model = SentenceTransformer('all-MiniLM-L6-v2')
+    logger.info("🟢 SentenceTransformer (all-MiniLM-L6-v2) Loaded Successfully!")
+except Exception as embed_err:
+    embed_model = None
     Pinecone = None
+    logger.warning(f"⚠️ Vector Engine Load Warning: {embed_err}")
 
 # Logs Setup
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -44,14 +52,18 @@ cloudinary.config(
 
 # Pinecone Vector DB Configuration
 pc_api_key = os.getenv("PINECONE_API_KEY")
+pc_index = None
 if pc_api_key and Pinecone:
-    pc = Pinecone(api_key=pc_api_key)
-    logger.info("🟢 Pinecone Vector DB Core Initialized!")
-else:
-    logger.warning("⚠️ PINECONE_API_KEY missing or pinecone-client not installed. Vector DB disabled.")
+    try:
+        pc = Pinecone(api_key=pc_api_key)
+        if "saarthi-memory" in [idx.name for idx in pc.list_indexes()]:
+            pc_index = pc.Index("saarthi-memory")
+            logger.info("🟢 Pinecone Index 'saarthi-memory' Connected Successfully!")
+    except Exception as pc_err:
+        logger.error(f"🔴 Pinecone Init Error: {pc_err}")
 
-# Version update kar diya 41.0.0 (Mark 11.0: Selective Vision Memory + Vector DB Prep)
-app = FastAPI(title="Saarthi AI Core", version="41.0.0") 
+# Version update kar diya 42.0.0 (Mark 12.0: Neural Vector Embedding Core Active)
+app = FastAPI(title="Saarthi AI Core", version="42.0.0") 
 
 # CORS Middleware (Cross-device connectivity ke liye)
 app.add_middleware(
@@ -130,7 +142,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi Omni-Core is Online (V41.0.0)!", "service": "Selective Vision Cortex & Vector Prep Active"}
+    return {"status": "🟢 Saarthi Omni-Core is Online (V42.0.0)!", "service": "Pinecone Neural Vector Core Active"}
 
 # =======================================================
 # 🌐 WEBSOCKET CONNECTION MANAGER
@@ -189,9 +201,6 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                 ]
             })
             
-            # Note: For pure vision calls, Groq doesn't natively support tool calling in the same turn yet. 
-            # If we need tool extraction during vision, we handle it via a multi-step prompt or fallback.
-            # But we can pass the prompt to see if user wants to save it.
             response = await client.chat.completions.create(
                 model="llama-3.2-90b-vision-preview",  
                 messages=messages,
@@ -201,7 +210,7 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
             final_reply = response.choices[0].message.content
             
             # Simple fallback intent detection for saving vision memory when using the vision model
-            if "save" in user_msg.lower() or "yaad" in user_msg.lower() or "memory" in user_msg.lower():
+            if any(k in user_msg.lower() for k in ["save", "yaad", "remember", "capture", "keep"]):
                 action_type = "SAVE_VISION"
                 action_data1 = "User requested vision save"
             
@@ -376,10 +385,10 @@ async def live_chat_endpoint(websocket: WebSocket):
                                         
                                         await manager.send_json(response_data, websocket)
 
-                                        # ☁️ EXPLICIT CLOUDINARY UPLOAD & MONGODB SAVE LOGIC
+                                        # ☁️ SELECTIVE CLOUDINARY + MONGO + PINECONE VECTOR SAVE
                                         if response_data.get("action") == "SAVE_VISION" and latest_received_image:
                                             try:
-                                                logger.info("☁️ Explicit save commanded. Uploading frame to Cloudinary...")
+                                                logger.info("☁️ Command received. Uploading frame to Cloudinary...")
                                                 upload_result = cloudinary.uploader.upload(
                                                     f"data:image/jpeg;base64,{latest_received_image}", 
                                                     folder="saarthi_vision"
@@ -389,9 +398,11 @@ async def live_chat_endpoint(websocket: WebSocket):
                                                 ist_timezone = pytz.timezone('Asia/Kolkata')
                                                 live_time = datetime.datetime.now(ist_timezone)
                                                 
-                                                deep_mem_col.insert_one({
+                                                mem_content = f"Tag: '{response_data.get('action_data1', '')}' | User: '{user_text}' | Jarvis: '{response_data['reply']}'"
+                                                
+                                                doc_res = deep_mem_col.insert_one({
                                                     "type": "visual",
-                                                    "content": f"Tag: '{response_data.get('action_data1', '')}' | User: '{user_text}' | Jarvis: '{response_data['reply']}'",
+                                                    "content": mem_content,
                                                     "url": image_url,
                                                     "custom_name": "Requested Vision Memory",
                                                     "location": "Live Context",
@@ -400,9 +411,20 @@ async def live_chat_endpoint(websocket: WebSocket):
                                                     "timestamp": datetime.datetime.now(),
                                                     "is_pinned": False
                                                 })
-                                                logger.info(f"✅ Selective Visual Memory saved to Database. URL: {image_url}")
+                                                
+                                                # 🌲 Pinecone Vector Integration
+                                                if pc_index and embed_model:
+                                                    vector = embed_model.encode(mem_content).tolist()
+                                                    pc_index.upsert(vectors=[(
+                                                        str(doc_res.inserted_id),
+                                                        vector,
+                                                        {"content": mem_content, "url": image_url, "type": "visual"}
+                                                    )])
+                                                    logger.info("🌲 Vector embedding successfully upserted to Pinecone!")
+
+                                                logger.info(f"✅ Selective Visual Memory saved. URL: {image_url}")
                                             except Exception as cloud_err:
-                                                logger.error(f"🔴 Cloudinary Save Error: {cloud_err}")
+                                                logger.error(f"🔴 Cloudinary / Vector Save Error: {cloud_err}")
                                             
                                         latest_received_image = None
                                         
@@ -429,9 +451,11 @@ async def live_chat_endpoint(websocket: WebSocket):
                             image_url = upload_result.get("secure_url")
                             ist_timezone = pytz.timezone('Asia/Kolkata')
                             live_time = datetime.datetime.now(ist_timezone)
-                            deep_mem_col.insert_one({
+                            mem_content = f"Tag: '{response_data.get('action_data1', '')}' | User: '{user_text}' | Jarvis: '{response_data['reply']}'"
+                            
+                            doc_res = deep_mem_col.insert_one({
                                 "type": "visual",
-                                "content": f"Tag: '{response_data.get('action_data1', '')}' | User: '{user_text}' | Jarvis: '{response_data['reply']}'",
+                                "content": mem_content,
                                 "url": image_url,
                                 "custom_name": "Requested Vision Memory",
                                 "location": "Live Context",
@@ -440,6 +464,16 @@ async def live_chat_endpoint(websocket: WebSocket):
                                 "timestamp": datetime.datetime.now(),
                                 "is_pinned": False
                             })
+                            
+                            if pc_index and embed_model:
+                                vector = embed_model.encode(mem_content).tolist()
+                                pc_index.upsert(vectors=[(
+                                    str(doc_res.inserted_id),
+                                    vector,
+                                    {"content": mem_content, "url": image_url, "type": "visual"}
+                                )])
+                                logger.info("🌲 Text Command Vector embedding upserted to Pinecone!")
+
                             logger.info(f"✅ Text Selective Visual Memory saved. URL: {image_url}")
                         except Exception as cloud_err:
                             logger.error(f"🔴 Cloudinary Save Error: {cloud_err}")
@@ -506,7 +540,7 @@ async def get_pc_status():
 @app.post("/api/deep_memory/save")
 async def save_deep_memory(req: DeepMemorySaveReq):
     try:
-        deep_mem_col.insert_one({
+        doc_res = deep_mem_col.insert_one({
             "type": req.mem_type,
             "content": req.content,
             "custom_name": "New Memory",
@@ -516,7 +550,17 @@ async def save_deep_memory(req: DeepMemorySaveReq):
             "timestamp": datetime.datetime.now(),
             "is_pinned": False
         })
-        return {"success": True, "message": "Deep Memory Locked!"}
+        
+        # Save to Pinecone Vector DB
+        if pc_index and embed_model:
+            vector = embed_model.encode(req.content).tolist()
+            pc_index.upsert(vectors=[(
+                str(doc_res.inserted_id),
+                vector,
+                {"content": req.content, "type": req.mem_type}
+            )])
+            
+        return {"success": True, "message": "Deep Memory Locked in DB + Vector Index!"}
     except Exception as e:
         return {"error": str(e)}
 
@@ -534,6 +578,8 @@ async def action_deep_memory(req: DeepMemoryActionReq):
         obj_id = ObjectId(req.mem_id)
         if req.action == "delete":
             deep_mem_col.delete_one({"_id": obj_id})
+            if pc_index:
+                pc_index.delete(ids=[req.mem_id])
         elif req.action == "pin":
             doc = deep_mem_col.find_one({"_id": obj_id})
             deep_mem_col.update_one({"_id": obj_id}, {"$set": {"is_pinned": not doc.get("is_pinned", False)}})
@@ -544,15 +590,38 @@ async def action_deep_memory(req: DeepMemoryActionReq):
 
 def search_deep_memory(query: str):
     try:
+        results_str = []
+        
+        # 1. Pinecone Semantic Vector Search
+        if pc_index and embed_model:
+            try:
+                query_vector = embed_model.encode(query).tolist()
+                pc_res = pc_index.query(vector=query_vector, top_k=4, include_metadata=True)
+                for match in pc_res.get('matches', []):
+                    score = round(match.get('score', 0), 2)
+                    meta = match.get('metadata', {})
+                    # Sirf high confidence match hi lenge
+                    if score > 0.4:
+                        results_str.append(f"- [SEMANTIC MATCH - Confidence {score}] {meta.get('content', '')}")
+            except Exception as ve_err:
+                logger.error(f"Pinecone Search Error: {ve_err}")
+
+        # 2. MongoDB Keyword Fallback
         words = query.split()
         regex_query = "|".join(words)
-        records = list(deep_mem_col.find({"content": {"$regex": regex_query, "$options": "i"}}).sort("timestamp", -1).limit(5))
-        if not records: return "Deep memory mein is se judi koi jankari nahi mili boss."
-        mem_str = "Deep Memory Results:\n"
+        records = list(deep_mem_col.find({"content": {"$regex": regex_query, "$options": "i"}}).sort("timestamp", -1).limit(4))
+        
         for r in records:
-            mem_str += f"- [{r['type'].upper()}] Date: {r['date']}, Time: {r['time']}, Location: {r['location']}. Detail: {r['content']}\n"
-        return mem_str
-    except Exception as e: return "Memory retrieve karne mein error aaya boss."
+            results_str.append(f"- [{r.get('type', 'TEXT').upper()}] Date: {r.get('date', '')}, Location: {r.get('location', '')}. Detail: {r.get('content', '')}")
+
+        if not results_str: 
+            return "Deep memory mein is se judi koi jankari nahi mili boss."
+            
+        # Remove duplicates
+        unique_results = list(set(results_str))
+        return "Deep Memory Results:\n" + "\n".join(unique_results)
+    except Exception as e: 
+        return "Memory retrieve karne mein error aaya boss."
 
 @app.post("/api/save_memory")
 async def save_memory(req: MemoryRequest):
@@ -657,7 +726,7 @@ saarthi_tools = [
     {"type": "function", "function": {"name": "perform_web_search", "description": "Search the internet.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
     {"type": "function", "function": {"name": "get_live_weather", "description": "Fetch real-time weather.", "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}}},
     {"type": "function", "function": {"name": "query_location_history", "description": "Find out where the user was.", "parameters": {"type": "object", "properties": {"date_query": {"type": "string"}}, "required": ["date_query"]}}},
-    {"type": "function", "function": {"name": "search_deep_memory", "description": "Search permanent Deep Memory.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
+    {"type": "function", "function": {"name": "search_deep_memory", "description": "Search permanent Deep Memory for semantic context matches.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
     {"type": "function", "function": {"name": "control_device", "description": "Control hardware, apps, UI, Media, Volume, Vision.", "parameters": {"type": "object", "properties": {"action": {"type": "string", "enum": ["open_app", "close_app", "youtube_search", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "open_camera", "open_scanner", "set_alarm", "set_timer", "bluetooth_settings", "gps_settings", "quick_share", "vision_scanning", "scan_vision"]}, "app_package": {"type": "string"}}, "required": ["action"]}}},
     {"type": "function", "function": {"name": "communicate", "description": "Make a phone call or send a WhatsApp.", "parameters": {"type": "object", "properties": {"method": {"type": "string", "enum": ["call", "whatsapp"]}, "contact_name": {"type": "string"}, "message_text": {"type": "string"}}, "required": ["method", "contact_name"]}}}
 ]
