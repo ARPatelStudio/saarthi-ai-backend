@@ -23,6 +23,12 @@ from bson import ObjectId
 import cloudinary
 import cloudinary.uploader
 
+# Vector DB Prep
+try:
+    from pinecone import Pinecone
+except ImportError:
+    Pinecone = None
+
 # Logs Setup
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -36,8 +42,16 @@ cloudinary.config(
     api_secret=os.getenv("CLOUDINARY_API_SECRET")
 )
 
-# Version update kar diya 40.0.0 (Mark 10.0: Cloudinary Visual Memory Database Active)
-app = FastAPI(title="Saarthi AI Core", version="40.0.0") 
+# Pinecone Vector DB Configuration
+pc_api_key = os.getenv("PINECONE_API_KEY")
+if pc_api_key and Pinecone:
+    pc = Pinecone(api_key=pc_api_key)
+    logger.info("🟢 Pinecone Vector DB Core Initialized!")
+else:
+    logger.warning("⚠️ PINECONE_API_KEY missing or pinecone-client not installed. Vector DB disabled.")
+
+# Version update kar diya 41.0.0 (Mark 11.0: Selective Vision Memory + Vector DB Prep)
+app = FastAPI(title="Saarthi AI Core", version="41.0.0") 
 
 # CORS Middleware (Cross-device connectivity ke liye)
 app.add_middleware(
@@ -116,7 +130,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi Omni-Core is Online (V40.0.0)!", "service": "Cloudinary Visual Cortex Active"}
+    return {"status": "🟢 Saarthi Omni-Core is Online (V41.0.0)!", "service": "Selective Vision Cortex & Vector Prep Active"}
 
 # =======================================================
 # 🌐 WEBSOCKET CONNECTION MANAGER
@@ -165,7 +179,6 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
     action_data2 = ""
 
     try:
-        # 👁️ MULTIMODAL SWITCHER
         if image_base64:
             logger.info("👁️ Vision payload detected! Switching to Llama-3.2-90B-Vision model.")
             messages.append({
@@ -176,6 +189,9 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                 ]
             })
             
+            # Note: For pure vision calls, Groq doesn't natively support tool calling in the same turn yet. 
+            # If we need tool extraction during vision, we handle it via a multi-step prompt or fallback.
+            # But we can pass the prompt to see if user wants to save it.
             response = await client.chat.completions.create(
                 model="llama-3.2-90b-vision-preview",  
                 messages=messages,
@@ -183,6 +199,11 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                 temperature=0.7
             )
             final_reply = response.choices[0].message.content
+            
+            # Simple fallback intent detection for saving vision memory when using the vision model
+            if "save" in user_msg.lower() or "yaad" in user_msg.lower() or "memory" in user_msg.lower():
+                action_type = "SAVE_VISION"
+                action_data1 = "User requested vision save"
             
         else:
             messages.append({"role": "user", "content": user_msg})
@@ -205,7 +226,11 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                     args = json.loads(tool_call.function.arguments)
                     logger.info(f"⚙️ Jarvis called Tool: {func_name} with args {args}")
 
-                    if func_name == "perform_web_search":
+                    if func_name == "save_vision_to_memory":
+                        action_type = "SAVE_VISION"
+                        action_data1 = args.get("context_tag", "Vision Memory")
+                        messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": "Vision save triggered successfully."})
+                    elif func_name == "perform_web_search":
                         result = perform_web_search(args.get("query"))
                         messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result})
                     elif func_name == "get_live_weather":
@@ -277,7 +302,6 @@ async def live_chat_endpoint(websocket: WebSocket):
     is_speaking = False
     last_voice_time = time.time()
     
-    # 👁️ SERVER SIDE VISUAL BUFFER
     latest_received_image = None 
     
     SILENCE_THRESHOLD = 1500     
@@ -352,10 +376,10 @@ async def live_chat_endpoint(websocket: WebSocket):
                                         
                                         await manager.send_json(response_data, websocket)
 
-                                        # ☁️ CLOUDINARY UPLOAD & MONGODB SAVE LOGIC
-                                        if latest_received_image:
+                                        # ☁️ EXPLICIT CLOUDINARY UPLOAD & MONGODB SAVE LOGIC
+                                        if response_data.get("action") == "SAVE_VISION" and latest_received_image:
                                             try:
-                                                logger.info("☁️ Uploading Ghost Frame to Cloudinary...")
+                                                logger.info("☁️ Explicit save commanded. Uploading frame to Cloudinary...")
                                                 upload_result = cloudinary.uploader.upload(
                                                     f"data:image/jpeg;base64,{latest_received_image}", 
                                                     folder="saarthi_vision"
@@ -367,16 +391,16 @@ async def live_chat_endpoint(websocket: WebSocket):
                                                 
                                                 deep_mem_col.insert_one({
                                                     "type": "visual",
-                                                    "content": f"User: '{user_text}' | Jarvis: '{response_data['reply']}'",
+                                                    "content": f"Tag: '{response_data.get('action_data1', '')}' | User: '{user_text}' | Jarvis: '{response_data['reply']}'",
                                                     "url": image_url,
-                                                    "custom_name": "Ghost Vision Memory",
+                                                    "custom_name": "Requested Vision Memory",
                                                     "location": "Live Context",
                                                     "date": live_time.strftime('%Y-%m-%d'),
                                                     "time": live_time.strftime('%I:%M %p'),
                                                     "timestamp": datetime.datetime.now(),
                                                     "is_pinned": False
                                                 })
-                                                logger.info(f"✅ Visual Memory saved to Database. URL: {image_url}")
+                                                logger.info(f"✅ Selective Visual Memory saved to Database. URL: {image_url}")
                                             except Exception as cloud_err:
                                                 logger.error(f"🔴 Cloudinary Save Error: {cloud_err}")
                                             
@@ -399,7 +423,7 @@ async def live_chat_endpoint(websocket: WebSocket):
                     )
                     await manager.send_json(response_data, websocket)
                     
-                    if b64_image:
+                    if response_data.get("action") == "SAVE_VISION" and b64_image:
                         try:
                             upload_result = cloudinary.uploader.upload(f"data:image/jpeg;base64,{b64_image}", folder="saarthi_vision")
                             image_url = upload_result.get("secure_url")
@@ -407,16 +431,16 @@ async def live_chat_endpoint(websocket: WebSocket):
                             live_time = datetime.datetime.now(ist_timezone)
                             deep_mem_col.insert_one({
                                 "type": "visual",
-                                "content": f"User: '{user_text}' | Jarvis: '{response_data['reply']}'",
+                                "content": f"Tag: '{response_data.get('action_data1', '')}' | User: '{user_text}' | Jarvis: '{response_data['reply']}'",
                                 "url": image_url,
-                                "custom_name": "Manual Vision Request",
+                                "custom_name": "Requested Vision Memory",
                                 "location": "Live Context",
                                 "date": live_time.strftime('%Y-%m-%d'),
                                 "time": live_time.strftime('%I:%M %p'),
                                 "timestamp": datetime.datetime.now(),
                                 "is_pinned": False
                             })
-                            logger.info(f"✅ Text Visual Memory saved. URL: {image_url}")
+                            logger.info(f"✅ Text Selective Visual Memory saved. URL: {image_url}")
                         except Exception as cloud_err:
                             logger.error(f"🔴 Cloudinary Save Error: {cloud_err}")
 
@@ -629,6 +653,7 @@ def get_live_weather(location: str):
     except Exception as e: return "Weather API mein thoda glitch aaya boss."
 
 saarthi_tools = [
+    {"type": "function", "function": {"name": "save_vision_to_memory", "description": "Saves the current visual frame/photo to permanent memory ONLY when the user explicitly asks to save, remember, capture, or keep a photo of what they are pointing at.", "parameters": {"type": "object", "properties": {"context_tag": {"type": "string", "description": "A short summary of what is being saved based on user command."}}, "required": ["context_tag"]}}},
     {"type": "function", "function": {"name": "perform_web_search", "description": "Search the internet.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
     {"type": "function", "function": {"name": "get_live_weather", "description": "Fetch real-time weather.", "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}}},
     {"type": "function", "function": {"name": "query_location_history", "description": "Find out where the user was.", "parameters": {"type": "object", "properties": {"date_query": {"type": "string"}}, "required": ["date_query"]}}},
