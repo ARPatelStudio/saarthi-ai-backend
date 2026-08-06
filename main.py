@@ -8,7 +8,11 @@ import re
 import base64
 import io
 import wave
+import struct
+import asyncio
+from typing import List
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from groq import AsyncGroq
 from dotenv import load_dotenv
@@ -18,13 +22,22 @@ import certifi
 from bson import ObjectId
 
 # Logs Setup
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Version update kar diya 37.0.0 (Mark 8.0 Live WebSocket Gateway Active)
-app = FastAPI(title="Saarthi AI Core", version="37.0.0") 
+# Version update kar diya 38.0.0 (Unified REST + WebSocket VAD Core)
+app = FastAPI(title="Saarthi AI Core", version="38.0.0") 
+
+# CORS Middleware (Cross-device connectivity ke liye)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 api_key = os.getenv("GROQ_API_KEY")
 if not api_key:
@@ -33,6 +46,7 @@ if not api_key:
 client = AsyncGroq(api_key=api_key)
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
+# 💾 MONGODB SETUP
 MONGO_URI = "mongodb+srv://favouritegamer192_db_user:pjt6UStm6rB3ekEv@saarthi.sfsuxij.mongodb.net/?appName=Saarthi"
 try:
     mongo_client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
@@ -43,12 +57,14 @@ try:
     deep_mem_col = db["deep_memory"] 
     pc_status_col = db["pc_status"] # Ultron PC Status ke liye
     mongo_client.admin.command('ping') 
+    logger.info("🟢 MongoDB Connected Successfully!")
 except Exception as e:
     logger.error(f"🔴 MongoDB Connection Error: {e}")
 
 global_chat_history = []
 last_bot_reply = "" 
 
+# 📦 PYDANTIC MODELS
 class ChatRequest(BaseModel):
     message: str
     android_memory: str = "" 
@@ -92,62 +108,283 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AI is Online (V37.0.0: Live WebSocket & Ultron Swarm Active)!"}
-
+    return {"status": "🟢 Saarthi Omni-Core is Online (V38.0.0)!", "service": "Unified REST & WebSocket VAD Active"}
 
 # =======================================================
-# 🚀 NAYA ENDPOINT: MARK 8.0 LIVE WEBSOCKET ENGINE
+# 🌐 WEBSOCKET CONNECTION MANAGER
 # =======================================================
 class ConnectionManager:
     def __init__(self):
-        self.active_connections: list[WebSocket] = []
+        self.active_connections: List[WebSocket] = []
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
+        logger.info(f"🟢 New Client Connected. Total active: {len(self.active_connections)}")
 
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
+            logger.info(f"🔴 Client Disconnected. Total active: {len(self.active_connections)}")
+
+    async def send_json(self, message: dict, websocket: WebSocket):
+        try:
+            await websocket.send_json(message)
+        except Exception as e:
+            logger.error(f"Failed to send JSON message: {e}")
 
 manager = ConnectionManager()
 
-@app.websocket("/api/live_stream")
-async def live_stream(websocket: WebSocket):
-    """
-    Android App ka Mark 8.0 Live Engine yahan connect hoga!
-    403 Error ab nahi aayega. Ye raw audio bytes receive karega.
-    """
-    await manager.connect(websocket)
-    logger.info("🟢 Mark 8.0 Live Mode: WebSocket Connected Successfully!")
+# =======================================================
+# 🧠 CENTRALIZED LLM LOGIC (REST aur WebSocket dono use karenge)
+# =======================================================
+async def generate_jarvis_response(user_msg: str, android_memory: str = "") -> dict:
+    global global_chat_history
     
-    # 🚀 Optional: Bhej kar test karo ki Android ko message mil raha hai ya nahi
-    # await websocket.send_text("Hello Boss, Live Mode is Active on Server!")
+    system_prompt = {
+        "role": "system",
+        "content": (
+            "You are Saarthi (aka Jarvis), an extremely advanced AI assistant created by AR Patel Studio. "
+            "Speak in a natural, cool, and respectful Hinglish tone (Hindi + English). "
+            "Always address the user as 'Boss'. Keep your answers concise, straight to the point, "
+            "and conversational since they will be spoken out loud via Text-to-Speech. "
+            f"Extra Context from Android: {android_memory}"
+        )
+    }
+
+    messages = [system_prompt] + global_chat_history
+    messages.append({"role": "user", "content": user_msg})
+
+    action_type = "NONE"
+    action_data1 = ""
+    action_data2 = ""
 
     try:
-        audio_buffer = bytearray()
+        # 1. Pehla Call: Groq LLM (Tools Check)
+        response = await client.chat.completions.create(
+            model="llama-3.3-70b-versatile",  
+            messages=messages,
+            tools=saarthi_tools,
+            tool_choice="auto",
+            max_tokens=500,
+            temperature=0.7
+        )
+
+        response_message = response.choices[0].message
         
-        while True:
-            # 🎙️ Android se aane wala raw PCM data receive karo
-            data = await websocket.receive_bytes()
-            audio_buffer.extend(data)
+        # 2. Tool Execution Logic
+        if response_message.tool_calls:
+            messages.append(response_message) 
             
-            # (Future Update) Yahan hum Groq ko real-time audio chunk bhejenge
-            # Jaise hi buffer lamba hoga, usko WAV mein convert karke process karenge
-            if len(audio_buffer) > 16000 * 2: # Approx 1 second of 16kHz 16-bit audio
-                # Buffer flush (Agle step me is buffer ko AI ko bhejenge)
-                audio_buffer.clear() 
+            for tool_call in response_message.tool_calls:
+                func_name = tool_call.function.name
+                args = json.loads(tool_call.function.arguments)
+                logger.info(f"⚙️ Jarvis called Tool: {func_name} with args {args}")
+
+                if func_name == "perform_web_search":
+                    result = perform_web_search(args.get("query"))
+                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result})
+                
+                elif func_name == "get_live_weather":
+                    result = get_live_weather(args.get("location"))
+                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result})
+                
+                elif func_name == "query_location_history":
+                    result = query_location_history(args.get("date_query"))
+                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result})
+                
+                elif func_name == "search_deep_memory":
+                    result = search_deep_memory(args.get("query"))
+                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result})
+
+                elif func_name == "control_device":
+                    action_type = args.get("action", "NONE")
+                    action_data1 = args.get("app_package", "")
+                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": "Action triggered on Android."})
+                
+                elif func_name == "communicate":
+                    action_type = args.get("method", "call").upper()
+                    action_data1 = args.get("contact_name", "")
+                    action_data2 = args.get("message_text", "")
+                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": "Communication intent sent to Android."})
+
+            # Final Answer generate karna tools ka data aane ke baad
+            final_response = await client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=messages,
+                max_tokens=500,
+                temperature=0.7
+            )
+            final_reply = final_response.choices[0].message.content
+        else:
+            final_reply = response_message.content
+
+        # 3. Context Memory Update
+        global_chat_history.append({"role": "user", "content": user_msg})
+        global_chat_history.append({"role": "assistant", "content": final_reply})
+        if len(global_chat_history) > 12: 
+            global_chat_history = global_chat_history[-12:]
+
+        return {
+            "type": "ai_response",
+            "reply": final_reply,
+            "action": action_type,
+            "action_data1": action_data1,
+            "action_data2": action_data2
+        }
+
+    except Exception as e:
+        logger.error(f"🔴 Groq LLM Error: {e}")
+        return {
+            "type": "ai_response",
+            "reply": "Sorry boss, mere neural net mein kuch glitch aa gaya hai. Kripya thodi der baad try karein.",
+            "action": "NONE",
+            "action_data1": "",
+            "action_data2": ""
+        }
+
+# =======================================================
+# 🎙️ VAD & BUFFER LOGIC FOR WEBSOCKET
+# =======================================================
+import time
+
+def get_max_amplitude(pcm_bytes):
+    """
+    Yeh function raw bytes (PCM) ki aawaz (volume) measure karta hai.
+    Taaki hum pata laga sakein ki user bol raha hai ya shant hai.
+    """
+    count = len(pcm_bytes) // 2
+    if count == 0:
+        return 0
+    # struct format '<' (little-endian), 'h' (16-bit integer)
+    samples = struct.unpack(f"<{count}h", pcm_bytes[:count*2])
+    return max(abs(s) for s in samples)
+
+
+@app.websocket("/ws/live_chat")
+async def live_chat_endpoint(websocket: WebSocket):
+    """
+    THE NEW OMNI-ENGINE WEBSOCKET
+    Ye Android se continuously audio lega, buffer karega, aur shanti (silence) 
+    hone par ek single Groq API call marega (No Spam, Key Saved!).
+    """
+    await manager.connect(websocket)
+    
+    audio_buffer = bytearray()
+    is_speaking = False
+    last_voice_time = time.time()
+    
+    # ⚙️ VAD Settings (Aap inko future me adjust kar sakte hain)
+    SILENCE_THRESHOLD = 1500     # Volume level trigger point
+    MAX_SILENCE_DURATION = 1.5   # Kitne second chup rehne par send karega
+    
+    try:
+        while True:
+            raw_data = await websocket.receive_text()
+            payload = json.loads(raw_data)
+            msg_type = payload.get("type")
+
+            if msg_type == "heartbeat":
+                await manager.send_json({"type": "heartbeat_ack", "status": "alive"}, websocket)
+
+            elif msg_type == "init":
+                client_name = payload.get("client", "Unknown")
+                logger.info(f"🛠️ Handshake successful with: {client_name}")
+                await manager.send_json({
+                    "type": "system",
+                    "reply": "Connection established with Supreme Mainframe.",
+                    "action": "NONE"
+                }, websocket)
+
+            elif msg_type == "audio_stream":
+                b64_audio = payload.get("data")
+                if b64_audio:
+                    pcm_bytes = base64.b64decode(b64_audio)
+                    amplitude = get_max_amplitude(pcm_bytes)
+                    audio_buffer.extend(pcm_bytes)
+                    
+                    if amplitude > SILENCE_THRESHOLD:
+                        is_speaking = True
+                        last_voice_time = time.time()
+                    else:
+                        # User abhi shant (silent) hai
+                        if is_speaking and (time.time() - last_voice_time > MAX_SILENCE_DURATION):
+                            is_speaking = False
+                            
+                            # 1.5 sec chup rehne ke baad, check karo recording choti toh nahi thi (noise/glitch)
+                            # 16kHz * 2 bytes = 32000 bytes/sec. Minimum 0.5 sec bolna zaruri hai.
+                            if len(audio_buffer) > 16000:
+                                logger.info(f"🎙️ VAD Triggered! (Silence detected). Processing {len(audio_buffer)} bytes.")
+                                
+                                # WAV file RAM me banayenge
+                                wav_io = io.BytesIO()
+                                with wave.open(wav_io, 'wb') as wav_file:
+                                    wav_file.setnchannels(1)
+                                    wav_file.setsampwidth(2)
+                                    wav_file.setframerate(16000)
+                                    wav_file.writeframes(audio_buffer)
+                                wav_io.seek(0)
+                                
+                                # Buffer turant clear kar do naye sawaal ke liye
+                                audio_buffer.clear()
+                                
+                                try:
+                                    # GROQ Whisper API (Speech to Text)
+                                    file_tuple = ("audio.wav", wav_io.read(), "audio/wav")
+                                    transcription = await client.audio.transcriptions.create(
+                                        file=file_tuple,
+                                        model="whisper-large-v3",
+                                        response_format="json"
+                                    )
+                                    user_text = transcription.text.strip()
+                                    
+                                    if user_text:
+                                        logger.info(f"🗣️ User Said (Live): {user_text}")
+                                        # Central LLM Brain ko pass karo
+                                        response_data = await generate_jarvis_response(user_text)
+                                        # Android ko wapas bhej do
+                                        await manager.send_json(response_data, websocket)
+                                except Exception as e:
+                                    logger.error(f"🔴 Whisper STT Error: {e}")
+                            else:
+                                # Agar audio buffer bohot chota tha, toh delete kardo (Faltu API hit mat karo)
+                                audio_buffer.clear()
+
+            elif msg_type == "text_command":
+                user_text = payload.get("data")
+                if user_text:
+                    logger.info(f"💬 Text Command (Live): {user_text}")
+                    response_data = await generate_jarvis_response(user_text)
+                    await manager.send_json(response_data, websocket)
 
     except WebSocketDisconnect:
+        logger.warning("⚠️ WebSocket disconnected cleanly by the client.")
         manager.disconnect(websocket)
-        logger.info("🔴 Mark 8.0 Live Mode: WebSocket Disconnected.")
     except Exception as e:
-        logger.error(f"WebSocket Error: {e}")
+        logger.error(f"💀 WebSocket Exception: {e}")
         manager.disconnect(websocket)
 
 
 # =======================================================
-# SYSTEM OTA UPDATE CHECK
+# 🌐 OLD REST ENDPOINT (For Traditional Android Fallback)
+# =======================================================
+@app.post("/chat", response_model=ChatResponse)
+async def chat_with_saarthi(request: ChatRequest):
+    """
+    Agar WebSocket down ho jaye, toh Android yahan se REST call karke answers mang sakta hai.
+    """
+    res = await generate_jarvis_response(request.message, request.android_memory)
+    return ChatResponse(
+        reply=res["reply"],
+        action=res["action"],
+        action_data1=res.get("action_data1", ""),
+        action_data2=res.get("action_data2", ""),
+        action_data3=""
+    )
+
+
+# =======================================================
+# UTILS & TOOLS (Intact and Safe)
 # =======================================================
 @app.get("/api/check_update")
 async def check_update():
@@ -158,9 +395,6 @@ async def check_update():
         "download_url": "https://aapki-website.com/jarvis_latest.apk"
     }
 
-# =======================================================
-# U.L.T.R.O.N. SWARM NETWORK (PC STATUS)
-# =======================================================
 @app.post("/api/pc_status")
 async def update_pc_status(req: PCStatusReq):
     try:
@@ -190,9 +424,6 @@ async def get_pc_status():
     except Exception as e:
         return {"battery": 12, "ram": 95, "is_locked": False}
 
-# =======================================================
-# DEEP MEMORY (UI & JARVIS KE LIYE)
-# =======================================================
 @app.post("/api/deep_memory/save")
 async def save_deep_memory(req: DeepMemorySaveReq):
     try:
@@ -246,9 +477,6 @@ def search_deep_memory(query: str):
         return mem_str
     except Exception as e: return "Memory retrieve karne mein error aaya boss."
 
-# =======================================================
-# PURANE ENDPOINTS (ANDROID SE MEMORY SAVE AUR FETCH)
-# =======================================================
 @app.post("/api/save_memory")
 async def save_memory(req: MemoryRequest):
     try:
@@ -266,9 +494,6 @@ async def get_memory():
     except Exception as e:
         return {"memory": ""}
 
-# =======================================================
-# PC CONTROLLER ENDPOINT
-# =======================================================
 @app.post("/api/pc_command")
 async def pc_command(req: PCCommandReq):
     try:
@@ -282,9 +507,6 @@ async def pc_command(req: PCCommandReq):
     except Exception as e:
         return {"error": str(e)}
 
-# =======================================================
-# --- TRACKING & WEATHER LOGIC ---
-# =======================================================
 @app.post("/api/track_location")
 async def track_location(req: LocationTrackRequest):
     try:
@@ -353,7 +575,6 @@ def get_live_weather(location: str):
         return f"Live Update: {location} mein abhi temp {response['main']['temp']}°C hai aur mausam '{response['weather'][0]['description']}' jaisa hai."
     except Exception as e: return "Weather API mein thoda glitch aaya boss."
 
-# 🚀 TOOLS UPDATE
 saarthi_tools = [
     {"type": "function", "function": {"name": "perform_web_search", "description": "Search the internet.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
     {"type": "function", "function": {"name": "get_live_weather", "description": "Fetch real-time weather.", "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}}},
@@ -363,113 +584,6 @@ saarthi_tools = [
     {"type": "function", "function": {"name": "communicate", "description": "Make a phone call or send a WhatsApp.", "parameters": {"type": "object", "properties": {"method": {"type": "string", "enum": ["call", "whatsapp"]}, "contact_name": {"type": "string"}, "message_text": {"type": "string"}}, "required": ["method", "contact_name"]}}}
 ]
 
-@app.post("/chat", response_model=ChatResponse)
-async def chat_with_saarthi(request: ChatRequest):
-    global global_chat_history
-    user_msg = request.message
-
-    # 🧠 SYSTEM PROMPT: Jarvis Persona & Context
-    system_prompt = {
-        "role": "system",
-        "content": (
-            "You are Saarthi (aka Jarvis), an extremely advanced AI assistant created by AR Patel Studio. "
-            "Speak in a natural, cool, and respectful Hinglish tone (Hindi + English). "
-            "Always address the user as 'Boss'. Keep your answers concise, straight to the point, "
-            "and conversational since they will be spoken out loud via Text-to-Speech. "
-            f"Extra Context from Android: {request.android_memory}"
-        )
-    }
-
-    messages = [system_prompt] + global_chat_history
-    messages.append({"role": "user", "content": user_msg})
-
-    try:
-        # 1. PEHLA CALL: Groq LLM ko query aur tools bhejna
-        response = await client.chat.completions.create(
-            model="llama-3.3-70b-versatile",  # Best for speed and function calling
-            messages=messages,
-            tools=saarthi_tools,
-            tool_choice="auto",
-            max_tokens=500,
-            temperature=0.7
-        )
-
-        response_message = response.choices[0].message
-        
-        # Default Android Actions
-        action_type = "NONE"
-        action_data1 = ""
-        action_data2 = ""
-
-        # 🛠️ 2. TOOL EXECUTION: Agar AI ne tool use karne ka decide kiya
-        if response_message.tool_calls:
-            messages.append(response_message) # Add AI's tool request to history
-            
-            for tool_call in response_message.tool_calls:
-                func_name = tool_call.function.name
-                args = json.loads(tool_call.function.arguments)
-                
-                logger.info(f"⚙️ Jarvis called Tool: {func_name} with args {args}")
-
-                # -- SERVER SIDE TOOLS (Python handle karega) --
-                if func_name == "perform_web_search":
-                    result = perform_web_search(args.get("query"))
-                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result})
-                
-                elif func_name == "get_live_weather":
-                    result = get_live_weather(args.get("location"))
-                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result})
-                
-                elif func_name == "query_location_history":
-                    result = query_location_history(args.get("date_query"))
-                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result})
-                
-                elif func_name == "search_deep_memory":
-                    result = search_deep_memory(args.get("query"))
-                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result})
-
-                # -- CLIENT SIDE TOOLS (Android handle karega) --
-                elif func_name == "control_device":
-                    action_type = args.get("action", "NONE")
-                    action_data1 = args.get("app_package", "")
-                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": "Action triggered on Android device."})
-                
-                elif func_name == "communicate":
-                    action_type = args.get("method", "call").upper() # CALL or WHATSAPP
-                    action_data1 = args.get("contact_name", "")
-                    action_data2 = args.get("message_text", "")
-                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": "Communication intent sent to Android."})
-
-            # 3. DOOSRA CALL: Tools ka data milne ke baad final reply generate karna
-            final_response = await client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=messages,
-                max_tokens=500,
-                temperature=0.7
-            )
-            final_reply = final_response.choices[0].message.content
-        
-        else:
-            # Agar koi tool call nahi thi, toh direct reply
-            final_reply = response_message.content
-
-        # 🧠 MEMORY MANAGEMENT: Chat history update karna (Taki context yaad rahe)
-        global_chat_history.append({"role": "user", "content": user_msg})
-        global_chat_history.append({"role": "assistant", "content": final_reply})
-        if len(global_chat_history) > 12:  # Last 6 conversations yaad rakhega
-            global_chat_history = global_chat_history[-12:]
-
-        # 🎯 RETURN FINAL RESPONSE TO ANDROID
-        return ChatResponse(
-            reply=final_reply,
-            action=action_type,
-            action_data1=action_data1,
-            action_data2=action_data2
-        )
-
-    except Exception as e:
-        logger.error(f"🔴 Groq LLM Error: {e}")
-        return ChatResponse(
-            reply="Sorry boss, mere neural net mein kuch glitch aa gaya hai. Kripya thodi der baad try karein.", 
-            action="NONE"
-        )
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
