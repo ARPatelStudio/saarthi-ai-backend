@@ -12,3 +12,4 @@ pymongo
 dnspython
 certifi
 cloudinary
+pinecone-client
