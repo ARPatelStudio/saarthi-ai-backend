@@ -13,3 +13,4 @@ dnspython
 certifi
 cloudinary
 pinecone-client
+sentence-transformers
