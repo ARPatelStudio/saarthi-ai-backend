@@ -10,9 +10,11 @@ import io
 import wave
 import struct
 import asyncio
+import tempfile
 from typing import List
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from pydantic import BaseModel
 from groq import AsyncGroq
 from dotenv import load_dotenv
@@ -63,8 +65,8 @@ if pc_api_key and Pinecone:
     except Exception as pc_err:
         logger.error(f"🔴 Pinecone Init Error: {pc_err}")
 
-# Version update kar diya 42.0.2 (Mark 12.0: Clean Merge & Logger Fixed)
-app = FastAPI(title="Saarthi AI Core", version="42.0.2") 
+# Version update kar diya 42.0.3 (Mark 12.1: Cloud Piper Synthesizer Added)
+app = FastAPI(title="Saarthi AI Core", version="42.0.3") 
 
 # CORS Middleware (Cross-device connectivity ke liye)
 app.add_middleware(
@@ -141,9 +143,15 @@ class ChatResponse(BaseModel):
     action_data2: str = ""        
     action_data3: str = ""        
 
+# 🎙️ NAYA MODEL: Cloud TTS Synthesizer Req
+class SynthesizeReq(BaseModel):
+    text: str
+    voice: str = "papa_vocals"
+
+
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi Omni-Core is Online (V42.0.2)!", "service": "Pinecone Neural Vector Core Active"}
+    return {"status": "🟢 Saarthi Omni-Core is Online (V42.0.3)!", "service": "Pinecone Neural Vector Core + Cloud TTS Active"}
 
 # =======================================================
 # 🌐 WEBSOCKET CONNECTION MANAGER
@@ -427,7 +435,7 @@ async def live_chat_endpoint(websocket: WebSocket):
                                                 logger.info(f"✅ Selective Visual Memory saved. URL: {image_url}")
                                             except Exception as cloud_err:
                                                 logger.error(f"🔴 Cloudinary / Vector Save Error: {cloud_err}")
-                                            
+                                        
                                         latest_received_image = None
                                         
                                 except Exception as e:
@@ -490,6 +498,46 @@ async def live_chat_endpoint(websocket: WebSocket):
 # =======================================================
 # 🌐 OLD REST ENDPOINT & UTILS (Intact and Safe)
 # =======================================================
+
+# 🚀 NAYA CLOUD TTS ENDPOINT (PIPER OR gTTS FALLBACK)
+@app.post("/synthesize")
+async def synthesize_speech(req: SynthesizeReq):
+    try:
+        model_file = f"{req.voice}.onnx"
+        
+        # Method 1: Agar ONNX file server par padi hai, toh local Piper process chalega
+        if os.path.exists(model_file):
+            logger.info(f"🎙️ Piper Model found! Generating voice using {model_file}...")
+            out_path = tempfile.mktemp(suffix=".wav")
+            
+            # Executing Piper via system command (piper-tts CLI required)
+            cmd = f"echo '{req.text}' | piper --model {model_file} --output_file {out_path}"
+            os.system(cmd)
+            
+            with open(out_path, "rb") as f:
+                audio_bytes = f.read()
+            os.remove(out_path)
+            return Response(content=audio_bytes, media_type="audio/wav")
+            
+        else:
+            # Method 2: FALLBACK (Agar Model upload nahi kiya hai)
+            logger.warning(f"⚠️ Model '{model_file}' not found! Falling back to gTTS (Cloud Voice).")
+            try:
+                from gtts import gTTS
+                tts = gTTS(text=req.text, lang='hi') # Natural Hindi/Hinglish TTS
+                fp = io.BytesIO()
+                tts.write_to_fp(fp)
+                fp.seek(0)
+                # Android MediaPlayer aaram se mpeg stream ko handle kar lega
+                return Response(content=fp.read(), media_type="audio/mpeg")
+            except ImportError:
+                logger.error("gTTS library not installed on Render!")
+                return {"error": "gTTS not installed. Please add 'gTTS' to requirements.txt"}
+
+    except Exception as e:
+        logger.error(f"🔴 Synthesize Error: {e}")
+        return {"error": str(e)}
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat_with_saarthi(request: ChatRequest):
     res = await generate_jarvis_response(request.message, request.android_memory)
