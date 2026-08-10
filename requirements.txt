@@ -14,3 +14,5 @@ certifi
 cloudinary
 pinecone-client
 sentence-transformers
+piper-tts
+gTTS
