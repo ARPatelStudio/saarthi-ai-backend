@@ -264,15 +264,25 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
     action_data2 = ""
     action_data3 = ""
 
+    # 🚀 PHASE 23: LATEST 2026 FLAGSHIP MODEL SWARM (Llama 4 + DeepSeek V4)
     AVAILABLE_MODELS = [
-        "llama-3.3-70b-versatile",               # High-intelligence versatile model (Groq)
-        "deepseek-chat",                         # Tool-use capable text model (DeepSeek)
-        "deepseek-reasoner",                     # DeepSeek R1 Math/Logic Engine (DeepSeek)
-        "openai/gpt-oss-120b",                   # Large-scale open system
-        "qwen-3.6-27b",                          # Tool-use capable text model
-        "openai/gpt-oss-20b",                    # Lightweight open system
-        "llama-4-maverick-17b-128e-instruct",    # Llama 4 variant
-        "llama-4-scout-17b-16e-instruct"         # Llama 4 scout
+        # 🟢 GROQ FAST ENDPOINTS (Free / API)
+        "llama-3.1-70b-versatile",               # 128K context Multilingual workhorse
+        "llama3-70b-8192",                       # Extremely fast fallback
+        "llama-3.1-8b-instant",                  # Lightweight fast fallback
+        
+        # 🔵 DEEPSEEK V4 SERIES (2026 Flagships)
+        "deepseek-v4-flash",                     # Faster, 13B active, 1M context
+        "deepseek-v4-pro",                       # High-end Flagship, 49B active
+        "deepseek-reasoner",                     # R1 logic model
+        
+        # 🟣 META LLAMA 4 SERIES (Next-Gen)
+        "llama-4-maverick-17b-128e-instruct",    # Llama 4 Medium MoE
+        "llama-4-scout-17b-16e-instruct",        # Llama 4 Small Edge
+        
+        # ⚪ OPEN-SOURCE FALLBACKS
+        "openai/gpt-oss-120b",
+        "qwen-3.6-27b"
     ]
 
     try:
