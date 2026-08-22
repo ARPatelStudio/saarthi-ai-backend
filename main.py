@@ -41,10 +41,18 @@ load_dotenv()
 # ==========================================
 # 🧠 VECTOR DB & NEURAL EMBEDDINGS ENGINE
 # ==========================================
+# ==========================================
+# 🧠 VECTOR DB & NEURAL EMBEDDINGS ENGINE
+# ==========================================
+# 🚀 NAYA FIX: CPU aur RAM ko limit karne ke liye
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+
 try:
     from pinecone import Pinecone
     from sentence_transformers import SentenceTransformer
-    embed_model = SentenceTransformer('all-MiniLM-L6-v2')
+    # 🚀 NAYA FIX: Device ko explicitly 'cpu' set karo taaki memory kam use ho
+    embed_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
     logger.info("🟢 SentenceTransformer (all-MiniLM-L6-v2) Loaded Successfully!")
 except Exception as embed_err:
     embed_model = None
@@ -1096,4 +1104,6 @@ def shutdown_event():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # 🚀 NAYA FIX: Render automatically jo PORT dega, app usi par chalegi
+    port = int(os.environ.get("PORT", 10000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
