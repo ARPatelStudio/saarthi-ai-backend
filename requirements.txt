@@ -12,7 +12,7 @@ pymongo
 dnspython
 certifi
 cloudinary
-pinecone-client
+pinecone
 sentence-transformers
 piper-tts
 gTTS
