@@ -16,3 +16,4 @@ pinecone-client
 sentence-transformers
 piper-tts
 gTTS
+openai
