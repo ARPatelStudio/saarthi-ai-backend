@@ -38,27 +38,6 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# ==========================================
-# 🧠 VECTOR DB & NEURAL EMBEDDINGS ENGINE
-# ==========================================
-# ==========================================
-# 🧠 VECTOR DB & NEURAL EMBEDDINGS ENGINE
-# ==========================================
-# 🚀 NAYA FIX: CPU aur RAM ko limit karne ke liye
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-
-try:
-    from pinecone import Pinecone
-    from sentence_transformers import SentenceTransformer
-    # 🚀 NAYA FIX: Device ko explicitly 'cpu' set karo taaki memory kam use ho
-    embed_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
-    logger.info("🟢 SentenceTransformer (all-MiniLM-L6-v2) Loaded Successfully!")
-except Exception as embed_err:
-    embed_model = None
-    Pinecone = None
-    logger.warning(f"⚠️ Vector Engine Load Warning: {embed_err}")
-
 # Cloudinary Configuration
 cloudinary.config(
     cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
@@ -66,23 +45,15 @@ cloudinary.config(
     api_secret=os.getenv("CLOUDINARY_API_SECRET")
 )
 
-# Pinecone Vector DB Configuration
-pc_api_key = os.getenv("PINECONE_API_KEY")
-pc_index = None
-if pc_api_key and Pinecone:
-    try:
-        pc = Pinecone(api_key=pc_api_key)
-        if "saarthi-memory" in [idx.name for idx in pc.list_indexes()]:
-            pc_index = pc.Index("saarthi-memory")
-            logger.info("🟢 Pinecone Index 'saarthi-memory' Connected Successfully!")
-    except Exception as pc_err:
-        logger.error(f"🔴 Pinecone Init Error: {pc_err}")
+# 🚀 NAYA: Vector Server URL (Render 2 ka URL yahan aayega environment se)
+# Ensure this matches your Render 2 URL without a trailing slash (e.g., https://saarthi-vector-brain.onrender.com)
+VECTOR_SERVER_URL = os.getenv("VECTOR_SERVER_URL")
 
-# Version bump: 43.0.0 (Groq + DeepSeek Multi-Provider Matrix)
-app = FastAPI(title="Saarthi AI Core", version="43.0.0")
+# Version bump: 44.0.0 (Perfect Split: Main Core)
+app = FastAPI(title="Saarthi AI Core", version="44.0.0")
 
 # ==========================================
-# 🌐 CORS
+# 🌐 CORS & RATE LIMITER
 # ==========================================
 ALLOWED_ORIGINS_ENV = os.getenv("ALLOWED_ORIGINS", "*")
 if ALLOWED_ORIGINS_ENV.strip() == "*":
@@ -100,9 +71,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ==========================================
-# 🚦 SIMPLE IN-MEMORY RATE LIMITER
-# ==========================================
 RATE_LIMIT_WINDOW = 60
 RATE_LIMIT_MAX_REQUESTS = 40
 _request_log = defaultdict(deque)
@@ -225,10 +193,9 @@ class SynthesizeReq(BaseModel):
     text: str = Field(..., min_length=1, max_length=1000)
     voice: str = Field(default="papa_vocals", max_length=50)
 
-
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi Multi-Provider Omni-Core is Online (V43.0.0)!", "service": "Groq + DeepSeek Active"}
+    return {"status": "🟢 Saarthi Multi-Provider Omni-Core is Online (V44.0.0)!", "service": "Groq + DeepSeek Active"}
 
 @app.get("/health")
 async def health_check():
@@ -242,8 +209,7 @@ async def health_check():
     return {
         "status": "ok",
         "mongo_connected": mongo_ok,
-        "pinecone_connected": pc_index is not None,
-        "embedding_model_loaded": embed_model is not None,
+        "vector_server_linked": bool(VECTOR_SERVER_URL),
         "groq_api_key_set": bool(api_key),
         "deepseek_api_key_set": bool(DEEPSEEK_API_KEY),
         "weather_api_key_set": bool(WEATHER_API_KEY),
@@ -298,7 +264,6 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
     action_data2 = ""
     action_data3 = ""
 
-    # 🚀 PHASE 22: MULTI-PROVIDER AI BRAIN LIST
     AVAILABLE_MODELS = [
         "llama-3.3-70b-versatile",               # High-intelligence versatile model (Groq)
         "deepseek-chat",                         # Tool-use capable text model (DeepSeek)
@@ -321,7 +286,6 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                 ]
             })
 
-            # Vision usually remains locked to a vision-capable endpoint
             response = await client.chat.completions.create(
                 model="llama-3.2-90b-vision-preview",
                 messages=messages,
@@ -340,7 +304,6 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
             response_message = None
             used_model = None
 
-            # 🔄 FALLBACK ENGINE: Loop through all models until one succeeds!
             for model_name in AVAILABLE_MODELS:
                 try:
                     logger.info(f"🔄 Routing request to AI Matrix: {model_name}")
@@ -350,7 +313,6 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                             logger.warning(f"⚠️ DeepSeek client not setup. Skipping {model_name}.")
                             continue
                         
-                        # deepseek-reasoner doesn't support tools yet, skip tools for it
                         active_tools = saarthi_tools if "reasoner" not in model_name else None
                         
                         response = await deepseek_client.chat.completions.create(
@@ -424,7 +386,6 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                         "content": tool_result
                     })
 
-                # Re-call the EXACT same model that succeeded earlier to get the final tool answer
                 if "deepseek" in used_model.lower():
                     final_response = await deepseek_client.chat.completions.create(
                         model=used_model,
@@ -473,7 +434,7 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
         }
 
 # =======================================================
-# 📸 SHARED VISION-SAVE HELPER
+# 📸 SHARED VISION-SAVE HELPER (Connecting to RENDER 2)
 # =======================================================
 async def save_vision_memory(image_b64: str, user_text: str, response_data: dict):
     if deep_mem_col is None:
@@ -506,20 +467,22 @@ async def save_vision_memory(image_b64: str, user_text: str, response_data: dict
 
         doc_res = await asyncio.to_thread(db_insert)
 
-        if pc_index and embed_model:
-            def embed_and_upsert():
-                vector = embed_model.encode(mem_content).tolist()
-                pc_index.upsert(vectors=[(
-                    str(doc_res.inserted_id),
-                    vector,
-                    {"content": mem_content, "url": image_url, "type": "visual"}
-                )])
-            await asyncio.to_thread(embed_and_upsert)
-            logger.info("🌲 Vector embedding successfully upserted to Pinecone!")
+        # 🚀 Call Render 2 (Vector Brain) API for Upsert
+        if VECTOR_SERVER_URL:
+            try:
+                payload = {
+                    "id": str(doc_res.inserted_id),
+                    "text": mem_content,
+                    "metadata": {"content": mem_content, "url": image_url, "type": "visual"}
+                }
+                await asyncio.to_thread(requests.post, f"{VECTOR_SERVER_URL}/upsert", json=payload, timeout=10)
+                logger.info("🌲 Vector embedding successfully upserted to Render 2 (Pinecone)!")
+            except Exception as ve_err:
+                logger.error(f"🔴 Render 2 Upsert Error: {ve_err}")
 
         logger.info(f"✅ Vision memory saved. URL: {image_url}")
     except Exception as cloud_err:
-        logger.error(f"🔴 Cloudinary / Vector Save Error: {cloud_err}")
+        logger.error(f"🔴 Cloudinary Save Error: {cloud_err}")
 
 # =======================================================
 # 🎙️ VAD LOGIC
@@ -533,7 +496,6 @@ def get_max_amplitude(pcm_bytes):
 
 
 async def process_voice_buffer(audio_bytes: bytes, image_b64, websocket: WebSocket, session_history: list) -> list:
-    """Transcribes a finished speech segment and generates+sends the AI reply."""
     wav_io = io.BytesIO()
     with wave.open(wav_io, 'wb') as wav_file:
         wav_file.setnchannels(1)
@@ -826,15 +788,17 @@ async def save_deep_memory(req: DeepMemorySaveReq):
             })
         doc_res = await asyncio.to_thread(db_insert)
 
-        if pc_index and embed_model:
-            def embed_and_upsert():
-                vector = embed_model.encode(req.content).tolist()
-                pc_index.upsert(vectors=[(
-                    str(doc_res.inserted_id),
-                    vector,
-                    {"content": req.content, "type": req.mem_type}
-                )])
-            await asyncio.to_thread(embed_and_upsert)
+        # 🚀 Call Render 2 (Vector Brain) API for Upsert
+        if VECTOR_SERVER_URL:
+            try:
+                payload = {
+                    "id": str(doc_res.inserted_id),
+                    "text": req.content,
+                    "metadata": {"content": req.content, "type": req.mem_type}
+                }
+                await asyncio.to_thread(requests.post, f"{VECTOR_SERVER_URL}/upsert", json=payload, timeout=10)
+            except Exception as ve_err:
+                logger.error(f"🔴 Render 2 Upsert Error: {ve_err}")
 
         return {"success": True, "message": "Deep Memory Locked in DB + Vector Index!"}
     except Exception as e:
@@ -872,8 +836,6 @@ async def action_deep_memory(req: DeepMemoryActionReq):
         def db_op():
             if req.action == "delete":
                 deep_mem_col.delete_one({"_id": obj_id})
-                if pc_index:
-                    pc_index.delete(ids=[req.mem_id])
             elif req.action == "pin":
                 doc = deep_mem_col.find_one({"_id": obj_id})
                 deep_mem_col.update_one({"_id": obj_id}, {"$set": {"is_pinned": not doc.get("is_pinned", False)}})
@@ -881,27 +843,38 @@ async def action_deep_memory(req: DeepMemoryActionReq):
                 deep_mem_col.update_one({"_id": obj_id}, {"$set": {"custom_name": req.new_name}})
 
         await asyncio.to_thread(db_op)
+
+        # 🚀 Call Render 2 to delete vector if action is delete
+        if req.action == "delete" and VECTOR_SERVER_URL:
+            try:
+                await asyncio.to_thread(requests.post, f"{VECTOR_SERVER_URL}/delete", json={"id": req.mem_id}, timeout=10)
+            except Exception as e:
+                logger.error(f"🔴 Render 2 Delete Vector Error: {e}")
+
         return {"success": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 def search_deep_memory(query: str):
+    """Blocking function — always call via asyncio.to_thread from async code."""
     try:
         results_str = []
 
-        if pc_index and embed_model:
+        # 🚀 Call Render 2 (Vector Brain) API for Search
+        if VECTOR_SERVER_URL:
             try:
-                query_vector = embed_model.encode(query).tolist()
-                pc_res = pc_index.query(vector=query_vector, top_k=4, include_metadata=True)
-                for match in pc_res.get('matches', []):
-                    score = round(match.get('score', 0), 2)
-                    meta = match.get('metadata', {})
-                    if score > 0.4:
-                        results_str.append(f"- [SEMANTIC MATCH - Confidence {score}] {meta.get('content', '')}")
+                res = requests.post(f"{VECTOR_SERVER_URL}/search", json={"query": query}, timeout=10)
+                if res.status_code == 200:
+                    for match in res.json().get('matches', []):
+                        score = round(match.get('score', 0), 2)
+                        meta = match.get('metadata', {})
+                        if score > 0.4:
+                            results_str.append(f"- [SEMANTIC MATCH - Confidence {score}] {meta.get('content', '')}")
             except Exception as ve_err:
-                logger.error(f"Pinecone Search Error: {ve_err}")
+                logger.error(f"🔴 Render 2 Search Error: {ve_err}")
 
+        # MongoDB fallback string match
         if deep_mem_col is not None:
             words = [re.escape(w) for w in query.split() if w.strip()]
             regex_query = "|".join(words) if words else re.escape(query)
@@ -1084,13 +1057,15 @@ saarthi_tools = [
 # =======================================================
 @app.on_event("startup")
 async def startup_event():
-    logger.info("🚀 Saarthi AI Core (Multi-Provider Swarm) booting up...")
+    logger.info("🚀 Saarthi AI Core (Main Backend) booting up...")
     if not api_key:
         logger.error("🚨 GROQ_API_KEY missing — /chat and websocket will fail!")
     if not DEEPSEEK_API_KEY:
         logger.warning("⚠️ DEEPSEEK_API_KEY missing — DeepSeek models won't run.")
     if not MONGO_URI:
         logger.error("🚨 MONGO_URI missing — all DB features disabled!")
+    if not VECTOR_SERVER_URL:
+        logger.warning("⚠️ VECTOR_SERVER_URL missing — Deep Memory Semantic Search will not work!")
     if not SAARTHI_API_KEY:
         logger.warning("⚠️ SAARTHI_API_KEY not set — sensitive endpoints are UNPROTECTED. Set it in production!")
 
@@ -1104,6 +1079,6 @@ def shutdown_event():
 
 if __name__ == "__main__":
     import uvicorn
-    # 🚀 NAYA FIX: Render automatically jo PORT dega, app usi par chalegi
+    # 🚀 RENDER FIX: Automatically binds to Render's dynamic port
     port = int(os.environ.get("PORT", 10000))
     uvicorn.run(app, host="0.0.0.0", port=port)
