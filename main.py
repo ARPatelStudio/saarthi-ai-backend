@@ -47,11 +47,12 @@ cloudinary.config(
     api_secret=os.getenv("CLOUDINARY_API_SECRET")
 )
 
-# 🚀 NAYA: Vector Server URL (Render 2 ka URL yahan aayega environment se)
+# 🚀 SYSTEM URLS (Vector Brain & n8n Automation)
 VECTOR_SERVER_URL = os.getenv("VECTOR_SERVER_URL")
+N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")  # Add this to Render Environment Variables
 
-# Version bump: 49.0.0 (Voice-Triggered Semantic Screen Sharing Active)
-app = FastAPI(title="Saarthi AGI Core", version="49.0.0")
+# Version bump: 50.0.0 (Cloud Automation & n8n Engine Active)
+app = FastAPI(title="Saarthi AGI Core", version="50.0.0")
 
 # ==========================================
 # 🌐 CORS & RATE LIMITER
@@ -220,7 +221,7 @@ class SynthesizeReq(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AGI Omni-Core is Online (V49.0.0)!", "service": "Cognitive Engine Active"}
+    return {"status": "🟢 Saarthi AGI Omni-Core is Online (V50.0.0)!", "service": "Cognitive Engine Active"}
 
 @app.get("/health")
 async def health_check():
@@ -235,6 +236,7 @@ async def health_check():
         "status": "ok",
         "mongo_connected": mongo_ok,
         "vector_server_linked": bool(VECTOR_SERVER_URL),
+        "n8n_automation_linked": bool(N8N_WEBHOOK_URL),
         "groq_api_key_set": bool(api_key),
         "deepseek_api_key_set": bool(DEEPSEEK_API_KEY),
         "openrouter_api_key_set": bool(OPENROUTER_API_KEY),
@@ -277,9 +279,6 @@ manager = ConnectionManager()
 # =======================================================
 # 🛠️ TOOLS & JSON EXTRACTOR
 # =======================================================
-# =======================================================
-# 🛠️ TOOLS & JSON EXTRACTOR (Universal Understanding Update)
-# =======================================================
 saarthi_tools = [
     {"type": "function", "function": {"name": "save_vision_to_memory", "description": "Saves the current visual frame to permanent memory ONLY when requested.", "parameters": {"type": "object", "properties": {"context_tag": {"type": "string"}}, "required": ["context_tag"]}}},
     {"type": "function", "function": {"name": "perform_web_search", "description": "Search the internet for real-time information.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
@@ -287,10 +286,10 @@ saarthi_tools = [
     {"type": "function", "function": {"name": "query_location_history", "description": "Find out where the user was previously.", "parameters": {"type": "object", "properties": {"date_query": {"type": "string"}}, "required": ["date_query"]}}},
     {"type": "function", "function": {"name": "search_deep_memory", "description": "Search permanent memory for context matches.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
     
-    # 🚀 NEW: READ SCREEN TOOL (Triggers Android Accessibility Nodes)
+    # 🚀 READ SCREEN TOOL
     {"type": "function", "function": {"name": "read_current_screen", "description": "Requests the Android device to read the text and buttons on the user's current screen invisibly using Accessibility. Use this when the user asks you to read, summarize, or interact with what is currently on their screen.", "parameters": {"type": "object", "properties": {}, "required": []}}},
     
-    # 🚀 THE UNIVERSAL ACTION TOOL (Replaces control_device & communicate)
+    # 🚀 THE UNIVERSAL ACTION TOOL
     {"type": "function", "function": {
         "name": "execute_universal_command", 
         "description": "Executes ANY device action, app launch, media control, setting adjustment, or communication (call/message) on Android. Use your intelligence to infer the target.", 
@@ -302,6 +301,20 @@ saarthi_tools = [
                 "action_value": {"type": "string", "description": "The state or text message (e.g., 'on', 'off', '50%', 'Hello how are you')"}
             }, 
             "required": ["category", "target_name"]
+        }
+    }},
+    
+    # 🚀 NEW: n8n CLOUD AUTOMATION TOOL
+    {"type": "function", "function": {
+        "name": "trigger_cloud_automation", 
+        "description": "Trigger a cloud automation workflow via n8n for heavy background tasks (e.g., database entry in Neon PostgreSQL, sending emails, web scraping, API sync).", 
+        "parameters": {
+            "type": "object", 
+            "properties": {
+                "workflow_name": {"type": "string", "description": "The name of the task (e.g., 'save_to_neon_db', 'send_email', 'scrape_website')"},
+                "payload_json": {"type": "string", "description": "JSON string containing the data needed for the workflow"}
+            }, 
+            "required": ["workflow_name", "payload_json"]
         }
     }}
 ]
@@ -324,6 +337,32 @@ def extract_json_object(raw_text: str):
 
 def build_apology_json(reply_text: str, thought: str = "Internal fallback triggered", emotion: str = "apologetic") -> str:
     return json.dumps({"inner_monologue": thought, "emotion": emotion, "reply": reply_text})
+
+# =======================================================
+# 🌐 n8n WEBHOOK EXECUTOR
+# =======================================================
+def trigger_n8n_webhook(workflow_name: str, payload_str: str):
+    if not N8N_WEBHOOK_URL:
+        return "Boss, n8n Webhook URL is missing from environment variables."
+    try:
+        try:
+            payload = json.loads(payload_str)
+        except:
+            payload = {"raw_text": payload_str}
+
+        data = {
+            "workflow": workflow_name,
+            "data": payload,
+            "timestamp": datetime.datetime.now().isoformat()
+        }
+        res = requests.post(N8N_WEBHOOK_URL, json=data, timeout=10)
+        
+        if res.status_code == 200:
+            return f"Cloud automation '{workflow_name}' triggered successfully via n8n!"
+        return f"n8n webhook failed with status {res.status_code}."
+    except Exception as e:
+        logger.error(f"n8n Webhook error: {e}")
+        return "Failed to trigger cloud automation. Server might be down."
 
 # =======================================================
 # 🧠 CENTRALIZED MULTI-PROVIDER AGI LOGIC
@@ -536,21 +575,25 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                         tool_result = await asyncio.to_thread(query_location_history, args.get("date_query", ""))
                     elif func_name == "search_deep_memory":
                         tool_result = await asyncio.to_thread(search_deep_memory, args.get("query", ""))
-                        
-                    # 🚀 THE READ SCREEN TRIGGER
                     elif func_name == "read_current_screen":
                         action_type = "READ_SCREEN"
                         tool_result = "Trigger sent to Android to scan screen silently. Waiting for user payload."
-
                     elif func_name == "execute_universal_command":
                         category = args.get("category", "SYSTEM")
                         target = args.get("target_name", "")
                         value = args.get("action_value", "")
-                        
                         action_type = f"UNIVERSAL_{category}"
                         action_data1 = target
                         action_data2 = value
                         tool_result = f"Universal action {action_type} for {target} sent to Android."
+                    
+                    # 🚀 NEW: n8n CLOUD AUTOMATION TRIGGER
+                    elif func_name == "trigger_cloud_automation":
+                        tool_result = await asyncio.to_thread(
+                            trigger_n8n_webhook, 
+                            args.get("workflow_name", "default_task"), 
+                            args.get("payload_json", "{}")
+                        )
 
                     messages.append({
                         "role": "tool",
@@ -936,7 +979,8 @@ async def check_update():
             "- Cleaned up AI model fallback list\n"
             "- Added timeouts to all LLM calls\n"
             "- More robust JSON parsing\n"
-            "- Vision fallback chain added"
+            "- Vision fallback chain added\n"
+            "- Added n8n Cloud Automation Engine"
         ),
         "download_url": os.getenv("APP_DOWNLOAD_URL", "https://aapki-website.com/jarvis_latest.apk")
     }
@@ -1272,6 +1316,8 @@ async def startup_event():
         logger.error("🚨 MONGO_URI missing — all DB features disabled!")
     if not VECTOR_SERVER_URL:
         logger.warning("⚠️ VECTOR_SERVER_URL missing — Deep Memory Semantic Search will not work!")
+    if not N8N_WEBHOOK_URL:
+        logger.warning("⚠️ N8N_WEBHOOK_URL missing — Cloud Automation will fail!")
     if not SAARTHI_API_KEY:
         logger.warning("⚠️ SAARTHI_API_KEY not set — sensitive endpoints are UNPROTECTED. Set it in production!")
 
