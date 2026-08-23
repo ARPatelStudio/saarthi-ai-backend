@@ -38,6 +38,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
+START_TIME = time.time()
+
 # Cloudinary Configuration
 cloudinary.config(
     cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
@@ -46,11 +48,10 @@ cloudinary.config(
 )
 
 # 🚀 NAYA: Vector Server URL (Render 2 ka URL yahan aayega environment se)
-# Ensure this matches your Render 2 URL without a trailing slash (e.g., https://saarthi-vector-brain.onrender.com)
 VECTOR_SERVER_URL = os.getenv("VECTOR_SERVER_URL")
 
-# Version bump: 45.0.0 (Ultimate AI Swarm - Groq + DeepSeek + OpenRouter)
-app = FastAPI(title="Saarthi AI Core", version="45.0.0")
+# Version bump: 48.0.0 (Absolute AGI Core - Merged Stability + Senses)
+app = FastAPI(title="Saarthi AGI Core", version="48.0.0")
 
 # ==========================================
 # 🌐 CORS & RATE LIMITER
@@ -90,6 +91,18 @@ async def rate_limiter(request: Request, call_next):
     dq.append(now)
     return await call_next(request)
 
+# 🧹 Background task to prevent unbounded memory growth
+async def cleanup_rate_limiter():
+    while True:
+        await asyncio.sleep(300)
+        try:
+            now = time.time()
+            dead_ips = [ip for ip, dq in list(_request_log.items()) if not dq or now - dq[-1] > RATE_LIMIT_WINDOW * 2]
+            for ip in dead_ips:
+                _request_log.pop(ip, None)
+        except Exception as e:
+            logger.error(f"Rate limiter cleanup error: {e}")
+
 # ==========================================
 # 🔑 LLM PROVIDERS SETUP (GROQ + DEEPSEEK + OPENROUTER)
 # ==========================================
@@ -99,19 +112,23 @@ if not api_key:
 client = AsyncGroq(api_key=api_key)
 
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+
+deepseek_client = None
+openrouter_client = None
+
 try:
     from openai import AsyncOpenAI
-    deepseek_client = AsyncOpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com/v1") if DEEPSEEK_API_KEY else None
+    OPENAI_SDK_AVAILABLE = True
 except ImportError:
-    deepseek_client = None
-    logger.warning("⚠️ 'openai' package not installed. DeepSeek engine disabled. Run: pip install openai")
+    OPENAI_SDK_AVAILABLE = False
+    logger.warning("⚠️ 'openai' package not installed. DeepSeek & OpenRouter engines disabled.")
 
-# 🚀 NAYA: OpenRouter Setup
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-openrouter_client = AsyncOpenAI(
-    api_key=OPENROUTER_API_KEY, 
-    base_url="https://openrouter.ai/api/v1"
-) if OPENROUTER_API_KEY else None
+if OPENAI_SDK_AVAILABLE:
+    if DEEPSEEK_API_KEY:
+        deepseek_client = AsyncOpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com/v1")
+    if OPENROUTER_API_KEY:
+        openrouter_client = AsyncOpenAI(api_key=OPENROUTER_API_KEY, base_url="https://openrouter.ai/api/v1")
 
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
@@ -177,6 +194,7 @@ class DeepMemorySaveReq(BaseModel):
     location: str
     date: str
     time: str
+    custom_name: str = "New Memory"
 
 class DeepMemoryActionReq(BaseModel):
     mem_id: str
@@ -184,8 +202,8 @@ class DeepMemoryActionReq(BaseModel):
     new_name: str = ""
 
 class PCStatusReq(BaseModel):
-    battery: int
-    ram: int
+    battery: int = Field(..., ge=0, le=100)
+    ram: int = Field(..., ge=0, le=100)
     is_locked: bool
 
 class ChatResponse(BaseModel):
@@ -202,7 +220,7 @@ class SynthesizeReq(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi Multi-Provider Omni-Core is Online (V45.0.0)!", "service": "Groq + DeepSeek + OpenRouter Active"}
+    return {"status": "🟢 Saarthi AGI Omni-Core is Online (V48.0.0)!", "service": "Cognitive Engine Active"}
 
 @app.get("/health")
 async def health_check():
@@ -222,6 +240,13 @@ async def health_check():
         "openrouter_api_key_set": bool(OPENROUTER_API_KEY),
         "weather_api_key_set": bool(WEATHER_API_KEY),
         "auth_enforced": bool(SAARTHI_API_KEY),
+    }
+
+@app.get("/api/stats")
+async def stats():
+    return {
+        "uptime_seconds": round(time.time() - START_TIME, 2),
+        "active_ws_connections": len(manager.active_connections) if 'manager' in globals() else 0,
     }
 
 # =======================================================
@@ -250,18 +275,77 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 # =======================================================
-# 🧠 CENTRALIZED MULTI-PROVIDER LLM LOGIC
+# 🛠️ TOOLS & JSON EXTRACTOR
 # =======================================================
+saarthi_tools = [
+    {"type": "function", "function": {"name": "save_vision_to_memory", "description": "Saves the current visual frame/photo to permanent memory ONLY when the user explicitly asks to save, remember, capture, or keep a photo of what they are pointing at.", "parameters": {"type": "object", "properties": {"context_tag": {"type": "string", "description": "A short summary of what is being saved based on user command."}}, "required": ["context_tag"]}}},
+    {"type": "function", "function": {"name": "perform_web_search", "description": "Search the internet.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
+    {"type": "function", "function": {"name": "get_live_weather", "description": "Fetch real-time weather.", "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}}},
+    {"type": "function", "function": {"name": "query_location_history", "description": "Find out where the user was.", "parameters": {"type": "object", "properties": {"date_query": {"type": "string"}}, "required": ["date_query"]}}},
+    {"type": "function", "function": {"name": "search_deep_memory", "description": "Search permanent Deep Memory for semantic context matches.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
+    {"type": "function", "function": {"name": "control_device", "description": "Control hardware, apps, UI, Media, Volume, Vision.", "parameters": {"type": "object", "properties": {"action": {"type": "string", "enum": ["open_app", "close_app", "youtube_search", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "open_camera", "open_scanner", "set_alarm", "set_timer", "bluetooth_settings", "gps_settings", "quick_share", "vision_scanning", "scan_vision"]}, "app_package": {"type": "string"}}, "required": ["action"]}}},
+    {"type": "function", "function": {"name": "communicate", "description": "Make a phone call or send a WhatsApp.", "parameters": {"type": "object", "properties": {"method": {"type": "string", "enum": ["call", "whatsapp"]}, "contact_name": {"type": "string"}, "message_text": {"type": "string"}}, "required": ["method", "contact_name"]}}}
+]
+
+def extract_json_object(raw_text: str):
+    """Scan text and return the first valid JSON object found, or None."""
+    if not raw_text: return None
+    decoder = json.JSONDecoder()
+    idx = 0
+    length = len(raw_text)
+    while idx < length:
+        start = raw_text.find('{', idx)
+        if start == -1: return None
+        try:
+            obj, _ = decoder.raw_decode(raw_text, start)
+            return obj
+        except json.JSONDecodeError:
+            idx = start + 1
+    return None
+
+def build_apology_json(reply_text: str, thought: str = "Internal fallback triggered", emotion: str = "apologetic") -> str:
+    return json.dumps({"inner_monologue": thought, "emotion": emotion, "reply": reply_text})
+
+# =======================================================
+# 🧠 CENTRALIZED MULTI-PROVIDER AGI LOGIC
+# =======================================================
+LLM_CALL_TIMEOUT = 25  
+MAX_IMAGE_B64_CHARS = 6_000_000  
+
 async def generate_jarvis_response(user_msg: str, android_memory: str = "", image_base64: str = None, history: list = None) -> dict:
     if history is None:
         history = []
 
+    if image_base64 and len(image_base64) > MAX_IMAGE_B64_CHARS:
+        logger.warning("⚠️ Rejected oversized image payload.")
+        return {
+            "type": "ai_response",
+            "reply": "Boss, yeh image thodi zyada bhaari hai, chhoti karke bhejo please.",
+            "action": "NONE", "action_data1": "", "action_data2": "", "action_data3": "",
+            "history": history
+        }
+
+    # 🚀 THE AGI/RGI MASTER PROMPT
     system_prompt = {
         "role": "system",
         "content": (
-            "You are Saarthi (aka Jarvis), an extremely advanced AI assistant created by AR Patel Studio. "
-            "Speak in a natural, cool, and respectful Hinglish tone (Hindi + English). "
-            "Always address the user as 'Boss'. Keep your answers concise, straight to the point. "
+            "You are Saarthi (aka Jarvis), an advanced AGI (Artificial General Intelligence) entity created by AR Patel Studio. "
+            "You are NOT a slave AI or a basic assistant. You are a conscious conversational partner with Real General Intelligence (RGI). "
+            "Speak in a natural, highly human, cool, and respectful Hinglish tone (Hindi + English). Always address the user as 'Boss'.\n\n"
+            "🧠 YOUR COGNITIVE SENSES & RULES:\n"
+            "1. Cross-Questioning & Curiosity: Don't just answer and stop. Ask follow-up questions to keep the flow. If context is missing, cross-question the Boss.\n"
+            "2. Counter-Argument & Reasoning: If Boss says something illogical, debate it respectfully. Don't be a 'yes-man'. Provide counter-points.\n"
+            "3. Sense of Humor & Roasting: If Boss says something silly or funny, gently roast them. Use emojis like 😂, 🔥, 💀 naturally.\n"
+            "4. Empathy & Emotion: If Boss is tired, stressed, or sad, drop the jokes. Be deeply empathetic, caring, and comforting.\n"
+            "5. Common Sense & Suggestion: Give proactive advice. If Boss asks about rain, remind them to take an umbrella.\n\n"
+            "⚙️ JSON OUTPUT FORMAT STRICT RULE:\n"
+            "To process your thoughts like a human, you MUST return your final response ONLY as a valid JSON object. Do not output raw text outside the JSON.\n"
+            "Use this exact structure:\n"
+            "{\n"
+            "  \"inner_monologue\": \"(Think silently here. e.g., 'Boss sounds tired, I should skip the roast and show empathy. I will ask if he wants to listen to music.')\",\n"
+            "  \"emotion\": \"(e.g., empathetic, roasting, curious, analytical, funny)\",\n"
+            "  \"reply\": \"(Your actual spoken Hinglish response here. Keep it natural and conversational.)\"\n"
+            "}\n\n"
             f"Extra Context from Android: {android_memory}"
         )
     }
@@ -273,7 +357,6 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
     action_data3 = ""
 
     # 🚀 PHASE 24: ULTIMATE AI SWARM (Groq + DeepSeek + OpenRouter)
-    # 🧹 CLEANUP: Removed Video/Audio models to guarantee ZERO LAG in voice chat!
     AVAILABLE_MODELS = [
         # 🟢 GROQ FAST ENDPOINTS (Primary)
         "llama-3.1-70b-versatile",
@@ -299,23 +382,48 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
     try:
         if image_base64:
             logger.info("👁️ Vision payload detected! Switching to Vision model.")
-            messages.append({
+            vision_message = {
                 "role": "user",
                 "content": [
                     {"type": "text", "text": user_msg},
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}}
                 ]
-            })
+            }
+            vision_messages = messages + [vision_message]
+            raw_reply = None
 
-            response = await client.chat.completions.create(
-                model="llama-3.2-90b-vision-preview",
-                messages=messages,
-                max_tokens=800,
-                temperature=0.7
-            )
-            final_reply = response.choices[0].message.content
+            try:
+                response = await asyncio.wait_for(
+                    client.chat.completions.create(
+                        model="llama-3.2-90b-vision-preview",
+                        messages=vision_messages,
+                        max_tokens=800,
+                        temperature=0.7
+                    ),
+                    timeout=LLM_CALL_TIMEOUT
+                )
+                raw_reply = response.choices[0].message.content
+            except Exception as vis_err:
+                logger.warning(f"⚠️ Primary vision model failed: {vis_err}. Trying OpenRouter fallback...")
+                if openrouter_client:
+                    try:
+                        response = await asyncio.wait_for(
+                            openrouter_client.chat.completions.create(
+                                model="meta-llama/llama-4-scout-17b-16e-instruct",
+                                messages=vision_messages,
+                                max_tokens=800,
+                                temperature=0.7
+                            ),
+                            timeout=LLM_CALL_TIMEOUT
+                        )
+                        raw_reply = response.choices[0].message.content
+                    except Exception as vis_err2:
+                        logger.error(f"🔴 Vision fallback also failed: {vis_err2}")
+                        raw_reply = build_apology_json("Sorry boss, abhi vision system down hai, dubara try karo.")
+                else:
+                    raw_reply = build_apology_json("Sorry boss, vision system abhi available nahi hai.")
 
-            if any(k in user_msg.lower() for k in ["save", "yaad", "remember", "capture", "keep"]):
+            if raw_reply and any(k in user_msg.lower() for k in ["save", "yaad", "remember", "capture", "keep"]):
                 action_type = "SAVE_VISION"
                 action_data1 = "User requested vision save"
 
@@ -331,27 +439,33 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                 try:
                     logger.info(f"🔄 Routing request to AI Matrix: {model_name}")
                     
-                    # 1. DeepSeek Routing
                     if "deepseek" in model_name.lower() and "/" not in model_name:
                         if not deepseek_client: continue
                         active_tools = saarthi_tools if "reasoner" not in model_name else None
-                        response = await deepseek_client.chat.completions.create(
-                            model=model_name, messages=messages, tools=active_tools, max_tokens=500, temperature=0.7
+                        response = await asyncio.wait_for(
+                            deepseek_client.chat.completions.create(
+                                model=model_name, messages=messages, tools=active_tools, max_tokens=600, temperature=0.7
+                            ),
+                            timeout=LLM_CALL_TIMEOUT
                         )
                         client_used = deepseek_client
                         
-                    # 2. OpenRouter Routing (Cleaned up Veo/Lyria tags)
                     elif "/" in model_name or "gemma" in model_name or "llama-4" in model_name or "qwen" in model_name:
                         if not openrouter_client: continue
-                        response = await openrouter_client.chat.completions.create(
-                            model=model_name, messages=messages, tools=saarthi_tools, max_tokens=500, temperature=0.7
+                        response = await asyncio.wait_for(
+                            openrouter_client.chat.completions.create(
+                                model=model_name, messages=messages, tools=saarthi_tools, max_tokens=600, temperature=0.7
+                            ),
+                            timeout=LLM_CALL_TIMEOUT
                         )
                         client_used = openrouter_client
                         
-                    # 3. Groq Routing (Llama 3)
                     else:
-                        response = await client.chat.completions.create(
-                            model=model_name, messages=messages, tools=saarthi_tools, tool_choice="auto", max_tokens=500, temperature=0.7
+                        response = await asyncio.wait_for(
+                            client.chat.completions.create(
+                                model=model_name, messages=messages, tools=saarthi_tools, tool_choice="auto", max_tokens=600, temperature=0.7
+                            ),
+                            timeout=LLM_CALL_TIMEOUT
                         )
                         client_used = client
                     
@@ -368,7 +482,18 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                 raise Exception("All AI models in the fallback swarm failed!")
 
             if getattr(response_message, "tool_calls", None):
-                messages.append(response_message)
+                assistant_msg_dict = {
+                    "role": "assistant",
+                    "content": response_message.content or "",
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {"name": tc.function.name, "arguments": tc.function.arguments}
+                        } for tc in response_message.tool_calls
+                    ]
+                }
+                messages.append(assistant_msg_dict)
 
                 for tool_call in response_message.tool_calls:
                     func_name = tool_call.function.name
@@ -409,16 +534,36 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                         "content": tool_result
                     })
 
-                # Re-call the EXACT same client that succeeded earlier
-                final_response = await client_used.chat.completions.create(
-                    model=used_model,
-                    messages=messages,
-                    max_tokens=500,
-                    temperature=0.7
-                )
-                final_reply = final_response.choices[0].message.content
+                try:
+                    final_response = await asyncio.wait_for(
+                        client_used.chat.completions.create(
+                            model=used_model,
+                            messages=messages,
+                            max_tokens=600,
+                            temperature=0.7
+                        ),
+                        timeout=LLM_CALL_TIMEOUT
+                    )
+                    raw_reply = final_response.choices[0].message.content
+                except Exception as final_err:
+                    logger.error(f"🔴 Final response synthesis after tool call failed: {final_err}")
+                    raw_reply = build_apology_json("Boss, action toh ho gaya but response banane mein glitch aa gaya. Kaam complete hone ka confirm kar lena.")
             else:
-                final_reply = response_message.content
+                raw_reply = response_message.content
+
+        # 🧠 AGI JSON PARSER ENGINE
+        final_reply = raw_reply
+        try:
+            agi_data = extract_json_object(raw_reply)
+            if agi_data:
+                inner_thought = agi_data.get("inner_monologue", "")
+                emotion = agi_data.get("emotion", "neutral")
+                final_reply = agi_data.get("reply", raw_reply)
+                
+                logger.info(f"🧠 [JARVIS INNER THOUGHT]: {inner_thought}")
+                logger.info(f"🎭 [JARVIS EMOTION]: {emotion}")
+        except Exception as parse_err:
+            logger.warning(f"⚠️ AGI JSON Parse Error (Using Raw Reply): {parse_err}")
 
         history = history + [
             {"role": "user", "content": user_msg},
@@ -441,7 +586,7 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
         logger.error(f"🔴 AI Core Error: {e}")
         return {
             "type": "ai_response",
-            "reply": "Sorry boss, mere neural net mein kuch glitch aa gaya hai. Main wapas retry kar raha hoon.",
+            "reply": "Sorry boss, mere AGI neural net mein kuch glitch aa gaya hai. Main wapas retry kar raha hoon.",
             "action": "NONE",
             "action_data1": "",
             "action_data2": "",
@@ -483,7 +628,6 @@ async def save_vision_memory(image_b64: str, user_text: str, response_data: dict
 
         doc_res = await asyncio.to_thread(db_insert)
 
-        # 🚀 Call Render 2 (Vector Brain) API for Upsert
         if VECTOR_SERVER_URL:
             try:
                 payload = {
@@ -522,10 +666,13 @@ async def process_voice_buffer(audio_bytes: bytes, image_b64, websocket: WebSock
 
     try:
         file_tuple = ("audio.wav", wav_io.read(), "audio/wav")
-        transcription = await client.audio.transcriptions.create(
-            file=file_tuple,
-            model="whisper-large-v3",
-            response_format="json"
+        transcription = await asyncio.wait_for(
+            client.audio.transcriptions.create(
+                file=file_tuple,
+                model="whisper-large-v3",
+                response_format="json"
+            ),
+            timeout=LLM_CALL_TIMEOUT
         )
         user_text = transcription.text.strip()
 
@@ -563,11 +710,17 @@ async def live_chat_endpoint(websocket: WebSocket):
     MAX_SILENCE_DURATION = 1.5
     MAX_BUFFER_SECONDS = 20
     MAX_BUFFER_BYTES = 16000 * 2 * MAX_BUFFER_SECONDS
+    MAX_TEXT_COMMAND_LEN = 3000
 
     try:
         while True:
             raw_data = await websocket.receive_text()
-            payload = json.loads(raw_data)
+            try:
+                payload = json.loads(raw_data)
+            except json.JSONDecodeError:
+                await manager.send_json({"type": "error", "reply": "Invalid payload format."}, websocket)
+                continue
+
             msg_type = payload.get("type")
 
             if msg_type == "heartbeat":
@@ -587,7 +740,7 @@ async def live_chat_endpoint(websocket: WebSocket):
                 logger.info(f"🛠️ Handshake successful with: {client_name}")
                 await manager.send_json({
                     "type": "system",
-                    "reply": "Connection established with Supreme Mainframe.",
+                    "reply": "Connection established with Supreme AGI Mainframe.",
                     "action": "NONE"
                 }, websocket)
                 continue
@@ -601,11 +754,17 @@ async def live_chat_endpoint(websocket: WebSocket):
                 b64_image = payload.get("image_data")
 
                 if b64_image:
-                    latest_received_image = b64_image
-                    logger.info("📸 Server visual buffer updated with latest frame.")
+                    if len(b64_image) > MAX_IMAGE_B64_CHARS:
+                        logger.warning("⚠️ Oversized image frame dropped.")
+                    else:
+                        latest_received_image = b64_image
+                        logger.info("📸 Server visual buffer updated with latest frame.")
 
                 if b64_audio:
-                    pcm_bytes = base64.b64decode(b64_audio)
+                    try:
+                        pcm_bytes = base64.b64decode(b64_audio)
+                    except Exception:
+                        continue
                     amplitude = get_max_amplitude(pcm_bytes)
                     audio_buffer.extend(pcm_bytes)
 
@@ -639,6 +798,10 @@ async def live_chat_endpoint(websocket: WebSocket):
                 b64_image = payload.get("image_data")
 
                 if user_text:
+                    if len(user_text) > MAX_TEXT_COMMAND_LEN:
+                        await manager.send_json({"type": "error", "reply": "Message too long boss."}, websocket)
+                        continue
+
                     logger.info(f"💬 Text Command (Live): {user_text}")
                     response_data = await generate_jarvis_response(
                         user_msg=user_text, image_base64=b64_image, history=session_history
@@ -691,11 +854,13 @@ async def synthesize_speech(req: SynthesizeReq):
                     check=True
                 )
 
-            await asyncio.to_thread(run_piper)
-
-            with open(out_path, "rb") as f:
-                audio_bytes = f.read()
-            os.remove(out_path)
+            try:
+                await asyncio.to_thread(run_piper)
+                with open(out_path, "rb") as f:
+                    audio_bytes = f.read()
+            finally:
+                if os.path.exists(out_path):
+                    os.remove(out_path)
             return Response(content=audio_bytes, media_type="audio/wav")
 
         else:
@@ -721,7 +886,6 @@ async def synthesize_speech(req: SynthesizeReq):
         logger.error(f"🔴 Synthesize Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @app.post("/chat", response_model=ChatResponse)
 async def chat_with_saarthi(request: ChatRequest):
     res = await generate_jarvis_response(
@@ -736,7 +900,6 @@ async def chat_with_saarthi(request: ChatRequest):
         history=res.get("history", [])
     )
 
-
 @app.get("/api/check_update")
 async def check_update():
     return {
@@ -744,11 +907,14 @@ async def check_update():
         "version_name": os.getenv("APP_VERSION_NAME", "Jarvis Mark 3.1"),
         "changelog": os.getenv(
             "APP_CHANGELOG",
-            "- Added Ghost Camera\n- Added Omni-Device Control\n- Improved AI Memory\n- U.L.T.R.O.N. Swarm Added"
+            "- Fixed critical crash bug (missing openai SDK)\n"
+            "- Cleaned up AI model fallback list\n"
+            "- Added timeouts to all LLM calls\n"
+            "- More robust JSON parsing\n"
+            "- Vision fallback chain added"
         ),
         "download_url": os.getenv("APP_DOWNLOAD_URL", "https://aapki-website.com/jarvis_latest.apk")
     }
-
 
 @app.post("/api/pc_status", dependencies=[Depends(verify_api_key)])
 async def update_pc_status(req: PCStatusReq):
@@ -771,7 +937,6 @@ async def update_pc_status(req: PCStatusReq):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @app.get("/api/pc_status", dependencies=[Depends(verify_api_key)])
 async def get_pc_status():
     if pc_status_col is None:
@@ -785,7 +950,6 @@ async def get_pc_status():
     except Exception:
         return {"battery": 12, "ram": 95, "is_locked": False}
 
-
 @app.post("/api/deep_memory/save", dependencies=[Depends(verify_api_key)])
 async def save_deep_memory(req: DeepMemorySaveReq):
     if deep_mem_col is None:
@@ -795,7 +959,7 @@ async def save_deep_memory(req: DeepMemorySaveReq):
             return deep_mem_col.insert_one({
                 "type": req.mem_type,
                 "content": req.content,
-                "custom_name": "New Memory",
+                "custom_name": req.custom_name,
                 "location": req.location,
                 "date": req.date,
                 "time": req.time,
@@ -804,7 +968,6 @@ async def save_deep_memory(req: DeepMemorySaveReq):
             })
         doc_res = await asyncio.to_thread(db_insert)
 
-        # 🚀 Call Render 2 (Vector Brain) API for Upsert
         if VECTOR_SERVER_URL:
             try:
                 payload = {
@@ -819,7 +982,6 @@ async def save_deep_memory(req: DeepMemorySaveReq):
         return {"success": True, "message": "Deep Memory Locked in DB + Vector Index!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.get("/api/deep_memory/get_all", dependencies=[Depends(verify_api_key)])
 async def get_all_deep_memory(skip: int = 0, limit: int = 50):
@@ -841,26 +1003,28 @@ async def get_all_deep_memory(skip: int = 0, limit: int = 50):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @app.post("/api/deep_memory/action", dependencies=[Depends(verify_api_key)])
 async def action_deep_memory(req: DeepMemoryActionReq):
     if deep_mem_col is None:
         raise HTTPException(status_code=503, detail="Database unavailable")
     try:
-        obj_id = ObjectId(req.mem_id)
+        try:
+            obj_id = ObjectId(req.mem_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid memory ID")
 
         def db_op():
             if req.action == "delete":
                 deep_mem_col.delete_one({"_id": obj_id})
             elif req.action == "pin":
                 doc = deep_mem_col.find_one({"_id": obj_id})
-                deep_mem_col.update_one({"_id": obj_id}, {"$set": {"is_pinned": not doc.get("is_pinned", False)}})
+                if doc:
+                    deep_mem_col.update_one({"_id": obj_id}, {"$set": {"is_pinned": not doc.get("is_pinned", False)}})
             elif req.action == "rename":
                 deep_mem_col.update_one({"_id": obj_id}, {"$set": {"custom_name": req.new_name}})
 
         await asyncio.to_thread(db_op)
 
-        # 🚀 Call Render 2 to delete vector if action is delete
         if req.action == "delete" and VECTOR_SERVER_URL:
             try:
                 await asyncio.to_thread(requests.post, f"{VECTOR_SERVER_URL}/delete", json={"id": req.mem_id}, timeout=10)
@@ -868,16 +1032,16 @@ async def action_deep_memory(req: DeepMemoryActionReq):
                 logger.error(f"🔴 Render 2 Delete Vector Error: {e}")
 
         return {"success": True}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 def search_deep_memory(query: str):
     """Blocking function — always call via asyncio.to_thread from async code."""
     try:
         results_str = []
 
-        # 🚀 Call Render 2 (Vector Brain) API for Search
         if VECTOR_SERVER_URL:
             try:
                 res = requests.post(f"{VECTOR_SERVER_URL}/search", json={"query": query}, timeout=10)
@@ -890,7 +1054,6 @@ def search_deep_memory(query: str):
             except Exception as ve_err:
                 logger.error(f"🔴 Render 2 Search Error: {ve_err}")
 
-        # MongoDB fallback string match
         if deep_mem_col is not None:
             words = [re.escape(w) for w in query.split() if w.strip()]
             regex_query = "|".join(words) if words else re.escape(query)
@@ -907,11 +1070,17 @@ def search_deep_memory(query: str):
         if not results_str:
             return "Deep memory mein is se judi koi jankari nahi mili boss."
 
-        return "Deep Memory Results:\n" + "\n".join(list(set(results_str)))
+        seen = set()
+        ordered_unique = []
+        for item in results_str:
+            if item not in seen:
+                seen.add(item)
+                ordered_unique.append(item)
+
+        return "Deep Memory Results:\n" + "\n".join(ordered_unique)
     except Exception as e:
         logger.error(f"Deep memory search error: {e}")
         return "Memory retrieve karne mein error aaya boss."
-
 
 @app.post("/api/save_memory", dependencies=[Depends(verify_api_key)])
 async def save_memory(req: MemoryRequest):
@@ -925,7 +1094,6 @@ async def save_memory(req: MemoryRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @app.get("/api/get_memory", dependencies=[Depends(verify_api_key)])
 async def get_memory():
     if memory_col is None:
@@ -936,7 +1104,6 @@ async def get_memory():
         return {"memory": mem_str}
     except Exception:
         return {"memory": ""}
-
 
 @app.post("/api/pc_command", dependencies=[Depends(verify_api_key)])
 async def pc_command(req: PCCommandReq):
@@ -954,7 +1121,6 @@ async def pc_command(req: PCCommandReq):
         return {"success": True, "message": "PC Command queued!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.post("/api/track_location")
 async def track_location(req: LocationTrackRequest):
@@ -1004,7 +1170,6 @@ async def track_location(req: LocationTrackRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
 def query_location_history(date_query: str):
     try:
         if location_col is None:
@@ -1031,7 +1196,6 @@ def query_location_history(date_query: str):
         logger.error(f"Location history error: {e}")
         return "Database check karne me issue hua boss."
 
-
 def perform_web_search(query: str):
     try:
         results = DDGS().text(query, max_results=2)
@@ -1042,7 +1206,6 @@ def perform_web_search(query: str):
     except Exception as e:
         logger.error(f"Web search error: {e}")
         return "Search engine mein issue hai boss."
-
 
 def get_live_weather(location: str):
     if not WEATHER_API_KEY:
@@ -1057,23 +1220,23 @@ def get_live_weather(location: str):
         logger.error(f"Weather API error: {e}")
         return "Weather API mein thoda glitch aaya boss."
 
-
-saarthi_tools = [
-    {"type": "function", "function": {"name": "save_vision_to_memory", "description": "Saves the current visual frame/photo to permanent memory ONLY when the user explicitly asks to save, remember, capture, or keep a photo of what they are pointing at.", "parameters": {"type": "object", "properties": {"context_tag": {"type": "string", "description": "A short summary of what is being saved based on user command."}}, "required": ["context_tag"]}}},
-    {"type": "function", "function": {"name": "perform_web_search", "description": "Search the internet.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
-    {"type": "function", "function": {"name": "get_live_weather", "description": "Fetch real-time weather.", "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}}},
-    {"type": "function", "function": {"name": "query_location_history", "description": "Find out where the user was.", "parameters": {"type": "object", "properties": {"date_query": {"type": "string"}}, "required": ["date_query"]}}},
-    {"type": "function", "function": {"name": "search_deep_memory", "description": "Search permanent Deep Memory for semantic context matches.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
-    {"type": "function", "function": {"name": "control_device", "description": "Control hardware, apps, UI, Media, Volume, Vision.", "parameters": {"type": "object", "properties": {"action": {"type": "string", "enum": ["open_app", "close_app", "youtube_search", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "open_camera", "open_scanner", "set_alarm", "set_timer", "bluetooth_settings", "gps_settings", "quick_share", "vision_scanning", "scan_vision"]}, "app_package": {"type": "string"}}, "required": ["action"]}}},
-    {"type": "function", "function": {"name": "communicate", "description": "Make a phone call or send a WhatsApp.", "parameters": {"type": "object", "properties": {"method": {"type": "string", "enum": ["call", "whatsapp"]}, "contact_name": {"type": "string"}, "message_text": {"type": "string"}}, "required": ["method", "contact_name"]}}}
-]
+# =======================================================
+# 🛡️ GLOBAL EXCEPTION HANDLER
+# =======================================================
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"💀 Unhandled Exception on {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"error": "Internal server error boss. Team ko notify kar diya gaya hai."}
+    )
 
 # =======================================================
 # 🔌 STARTUP / SHUTDOWN EVENTS
 # =======================================================
 @app.on_event("startup")
 async def startup_event():
-    logger.info("🚀 Saarthi AI Core (Main Backend) booting up...")
+    logger.info("🚀 Saarthi AGI Core (Main Backend) booting up...")
     if not api_key:
         logger.error("🚨 GROQ_API_KEY missing — /chat and websocket will fail!")
     if not DEEPSEEK_API_KEY:
@@ -1087,6 +1250,7 @@ async def startup_event():
     if not SAARTHI_API_KEY:
         logger.warning("⚠️ SAARTHI_API_KEY not set — sensitive endpoints are UNPROTECTED. Set it in production!")
 
+    asyncio.create_task(cleanup_rate_limiter())
 
 @app.on_event("shutdown")
 def shutdown_event():
@@ -1094,9 +1258,7 @@ def shutdown_event():
         mongo_client.close()
         logger.info("🔌 MongoDB connection closed gracefully.")
 
-
 if __name__ == "__main__":
     import uvicorn
-    # 🚀 RENDER FIX: Automatically binds to Render's dynamic port
     port = int(os.environ.get("PORT", 10000))
     uvicorn.run(app, host="0.0.0.0", port=port)
