@@ -50,8 +50,8 @@ cloudinary.config(
 # 🚀 NAYA: Vector Server URL (Render 2 ka URL yahan aayega environment se)
 VECTOR_SERVER_URL = os.getenv("VECTOR_SERVER_URL")
 
-# Version bump: 48.0.0 (Absolute AGI Core - Merged Stability + Senses)
-app = FastAPI(title="Saarthi AGI Core", version="48.0.0")
+# Version bump: 49.0.0 (Voice-Triggered Semantic Screen Sharing Active)
+app = FastAPI(title="Saarthi AGI Core", version="49.0.0")
 
 # ==========================================
 # 🌐 CORS & RATE LIMITER
@@ -220,7 +220,7 @@ class SynthesizeReq(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AGI Omni-Core is Online (V48.0.0)!", "service": "Cognitive Engine Active"}
+    return {"status": "🟢 Saarthi AGI Omni-Core is Online (V49.0.0)!", "service": "Cognitive Engine Active"}
 
 @app.get("/health")
 async def health_check():
@@ -286,6 +286,9 @@ saarthi_tools = [
     {"type": "function", "function": {"name": "get_live_weather", "description": "Fetch real-time weather.", "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}}},
     {"type": "function", "function": {"name": "query_location_history", "description": "Find out where the user was previously.", "parameters": {"type": "object", "properties": {"date_query": {"type": "string"}}, "required": ["date_query"]}}},
     {"type": "function", "function": {"name": "search_deep_memory", "description": "Search permanent memory for context matches.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
+    
+    # 🚀 NEW: READ SCREEN TOOL (Triggers Android Accessibility Nodes)
+    {"type": "function", "function": {"name": "read_current_screen", "description": "Requests the Android device to read the text and buttons on the user's current screen invisibly using Accessibility. Use this when the user asks you to read, summarize, or interact with what is currently on their screen.", "parameters": {"type": "object", "properties": {}, "required": []}}},
     
     # 🚀 THE UNIVERSAL ACTION TOOL (Replaces control_device & communicate)
     {"type": "function", "function": {
@@ -533,16 +536,12 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                         tool_result = await asyncio.to_thread(query_location_history, args.get("date_query", ""))
                     elif func_name == "search_deep_memory":
                         tool_result = await asyncio.to_thread(search_deep_memory, args.get("query", ""))
-                    elif func_name == "control_device":
-                        action_type = args.get("action", "NONE")
-                        action_data1 = args.get("app_package", "")
-                        tool_result = "Action triggered on Android."
-                    elif func_name == "communicate":
-                        action_type = args.get("method", "call").upper()
-                        action_data1 = args.get("contact_name", "")
-                        action_data2 = args.get("message_text", "")
-                        tool_result = "Communication intent sent to Android."
-                        # 🚀 NEW: UNIVERSAL INTENT HANDLER
+                        
+                    # 🚀 THE READ SCREEN TRIGGER
+                    elif func_name == "read_current_screen":
+                        action_type = "READ_SCREEN"
+                        tool_result = "Trigger sent to Android to scan screen silently. Waiting for user payload."
+
                     elif func_name == "execute_universal_command":
                         category = args.get("category", "SYSTEM")
                         target = args.get("target_name", "")
