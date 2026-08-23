@@ -49,8 +49,8 @@ cloudinary.config(
 # Ensure this matches your Render 2 URL without a trailing slash (e.g., https://saarthi-vector-brain.onrender.com)
 VECTOR_SERVER_URL = os.getenv("VECTOR_SERVER_URL")
 
-# Version bump: 44.0.0 (Perfect Split: Main Core)
-app = FastAPI(title="Saarthi AI Core", version="44.0.0")
+# Version bump: 45.0.0 (Ultimate AI Swarm - Groq + DeepSeek + OpenRouter)
+app = FastAPI(title="Saarthi AI Core", version="45.0.0")
 
 # ==========================================
 # 🌐 CORS & RATE LIMITER
@@ -91,7 +91,7 @@ async def rate_limiter(request: Request, call_next):
     return await call_next(request)
 
 # ==========================================
-# 🔑 LLM PROVIDERS SETUP (GROQ + DEEPSEEK)
+# 🔑 LLM PROVIDERS SETUP (GROQ + DEEPSEEK + OPENROUTER)
 # ==========================================
 api_key = os.getenv("GROQ_API_KEY")
 if not api_key:
@@ -105,6 +105,13 @@ try:
 except ImportError:
     deepseek_client = None
     logger.warning("⚠️ 'openai' package not installed. DeepSeek engine disabled. Run: pip install openai")
+
+# 🚀 NAYA: OpenRouter Setup
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+openrouter_client = AsyncOpenAI(
+    api_key=OPENROUTER_API_KEY, 
+    base_url="https://openrouter.ai/api/v1"
+) if OPENROUTER_API_KEY else None
 
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
@@ -195,7 +202,7 @@ class SynthesizeReq(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi Multi-Provider Omni-Core is Online (V44.0.0)!", "service": "Groq + DeepSeek Active"}
+    return {"status": "🟢 Saarthi Multi-Provider Omni-Core is Online (V45.0.0)!", "service": "Groq + DeepSeek + OpenRouter Active"}
 
 @app.get("/health")
 async def health_check():
@@ -212,6 +219,7 @@ async def health_check():
         "vector_server_linked": bool(VECTOR_SERVER_URL),
         "groq_api_key_set": bool(api_key),
         "deepseek_api_key_set": bool(DEEPSEEK_API_KEY),
+        "openrouter_api_key_set": bool(OPENROUTER_API_KEY),
         "weather_api_key_set": bool(WEATHER_API_KEY),
         "auth_enforced": bool(SAARTHI_API_KEY),
     }
@@ -264,23 +272,26 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
     action_data2 = ""
     action_data3 = ""
 
-    # 🚀 PHASE 23: LATEST 2026 FLAGSHIP MODEL SWARM (Llama 4 + DeepSeek V4)
+    # 🚀 PHASE 24: ULTIMATE AI SWARM (Groq + DeepSeek + OpenRouter)
+    # 🧹 CLEANUP: Removed Video/Audio models to guarantee ZERO LAG in voice chat!
     AVAILABLE_MODELS = [
-        # 🟢 GROQ FAST ENDPOINTS (Free / API)
-        "llama-3.1-70b-versatile",               # 128K context Multilingual workhorse
-        "llama3-70b-8192",                       # Extremely fast fallback
-        "llama-3.1-8b-instant",                  # Lightweight fast fallback
+        # 🟢 GROQ FAST ENDPOINTS (Primary)
+        "llama-3.1-70b-versatile",
+        "llama3-70b-8192",
+        "llama-3.1-8b-instant",
         
-        # 🔵 DEEPSEEK V4 SERIES (2026 Flagships)
-        "deepseek-v4-flash",                     # Faster, 13B active, 1M context
-        "deepseek-v4-pro",                       # High-end Flagship, 49B active
-        "deepseek-reasoner",                     # R1 logic model
+        # 🔵 DEEPSEEK V4 SERIES (Secondary)
+        "deepseek-v4-flash",
+        "deepseek-v4-pro",
+        "deepseek-reasoner",
         
-        # 🟣 META LLAMA 4 SERIES (Next-Gen)
-        "llama-4-maverick-17b-128e-instruct",    # Llama 4 Medium MoE
-        "llama-4-scout-17b-16e-instruct",        # Llama 4 Small Edge
+        # 🟠 OPENROUTER: GOOGLE GEMMA (Free Text Fallbacks)
+        "google/gemma-4-26b-a4b-it:free",
+        "google/gemma-4-31b-it:free",
         
-        # ⚪ OPEN-SOURCE FALLBACKS
+        # 🟣 META LLAMA 4 SERIES & OTHERS (OpenRouter)
+        "llama-4-maverick-17b-128e-instruct",
+        "llama-4-scout-17b-16e-instruct",
         "openai/gpt-oss-120b",
         "qwen-3.6-27b"
     ]
@@ -313,34 +324,36 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
             
             response_message = None
             used_model = None
+            client_used = None
 
+            # 🔄 FALLBACK ENGINE
             for model_name in AVAILABLE_MODELS:
                 try:
                     logger.info(f"🔄 Routing request to AI Matrix: {model_name}")
                     
-                    if "deepseek" in model_name.lower():
-                        if not deepseek_client:
-                            logger.warning(f"⚠️ DeepSeek client not setup. Skipping {model_name}.")
-                            continue
-                        
+                    # 1. DeepSeek Routing
+                    if "deepseek" in model_name.lower() and "/" not in model_name:
+                        if not deepseek_client: continue
                         active_tools = saarthi_tools if "reasoner" not in model_name else None
-                        
                         response = await deepseek_client.chat.completions.create(
-                            model=model_name,
-                            messages=messages,
-                            tools=active_tools,
-                            max_tokens=500,
-                            temperature=0.7
+                            model=model_name, messages=messages, tools=active_tools, max_tokens=500, temperature=0.7
                         )
+                        client_used = deepseek_client
+                        
+                    # 2. OpenRouter Routing (Cleaned up Veo/Lyria tags)
+                    elif "/" in model_name or "gemma" in model_name or "llama-4" in model_name or "qwen" in model_name:
+                        if not openrouter_client: continue
+                        response = await openrouter_client.chat.completions.create(
+                            model=model_name, messages=messages, tools=saarthi_tools, max_tokens=500, temperature=0.7
+                        )
+                        client_used = openrouter_client
+                        
+                    # 3. Groq Routing (Llama 3)
                     else:
                         response = await client.chat.completions.create(
-                            model=model_name,
-                            messages=messages,
-                            tools=saarthi_tools,
-                            tool_choice="auto",
-                            max_tokens=500,
-                            temperature=0.7
+                            model=model_name, messages=messages, tools=saarthi_tools, tool_choice="auto", max_tokens=500, temperature=0.7
                         )
+                        client_used = client
                     
                     response_message = response.choices[0].message
                     used_model = model_name
@@ -396,20 +409,13 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                         "content": tool_result
                     })
 
-                if "deepseek" in used_model.lower():
-                    final_response = await deepseek_client.chat.completions.create(
-                        model=used_model,
-                        messages=messages,
-                        max_tokens=500,
-                        temperature=0.7
-                    )
-                else:
-                    final_response = await client.chat.completions.create(
-                        model=used_model,
-                        messages=messages,
-                        max_tokens=500,
-                        temperature=0.7
-                    )
+                # Re-call the EXACT same client that succeeded earlier
+                final_response = await client_used.chat.completions.create(
+                    model=used_model,
+                    messages=messages,
+                    max_tokens=500,
+                    temperature=0.7
+                )
                 final_reply = final_response.choices[0].message.content
             else:
                 final_reply = response_message.content
@@ -1072,6 +1078,8 @@ async def startup_event():
         logger.error("🚨 GROQ_API_KEY missing — /chat and websocket will fail!")
     if not DEEPSEEK_API_KEY:
         logger.warning("⚠️ DEEPSEEK_API_KEY missing — DeepSeek models won't run.")
+    if not OPENROUTER_API_KEY:
+        logger.warning("⚠️ OPENROUTER_API_KEY missing — OpenRouter fallback models won't run.")
     if not MONGO_URI:
         logger.error("🚨 MONGO_URI missing — all DB features disabled!")
     if not VECTOR_SERVER_URL:
