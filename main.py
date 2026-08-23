@@ -277,14 +277,30 @@ manager = ConnectionManager()
 # =======================================================
 # 🛠️ TOOLS & JSON EXTRACTOR
 # =======================================================
+# =======================================================
+# 🛠️ TOOLS & JSON EXTRACTOR (Universal Understanding Update)
+# =======================================================
 saarthi_tools = [
-    {"type": "function", "function": {"name": "save_vision_to_memory", "description": "Saves the current visual frame/photo to permanent memory ONLY when the user explicitly asks to save, remember, capture, or keep a photo of what they are pointing at.", "parameters": {"type": "object", "properties": {"context_tag": {"type": "string", "description": "A short summary of what is being saved based on user command."}}, "required": ["context_tag"]}}},
-    {"type": "function", "function": {"name": "perform_web_search", "description": "Search the internet.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
+    {"type": "function", "function": {"name": "save_vision_to_memory", "description": "Saves the current visual frame to permanent memory ONLY when requested.", "parameters": {"type": "object", "properties": {"context_tag": {"type": "string"}}, "required": ["context_tag"]}}},
+    {"type": "function", "function": {"name": "perform_web_search", "description": "Search the internet for real-time information.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
     {"type": "function", "function": {"name": "get_live_weather", "description": "Fetch real-time weather.", "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}}},
-    {"type": "function", "function": {"name": "query_location_history", "description": "Find out where the user was.", "parameters": {"type": "object", "properties": {"date_query": {"type": "string"}}, "required": ["date_query"]}}},
-    {"type": "function", "function": {"name": "search_deep_memory", "description": "Search permanent Deep Memory for semantic context matches.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
-    {"type": "function", "function": {"name": "control_device", "description": "Control hardware, apps, UI, Media, Volume, Vision.", "parameters": {"type": "object", "properties": {"action": {"type": "string", "enum": ["open_app", "close_app", "youtube_search", "flashlight_on", "flashlight_off", "media_play", "media_pause", "media_stop", "open_camera", "open_scanner", "set_alarm", "set_timer", "bluetooth_settings", "gps_settings", "quick_share", "vision_scanning", "scan_vision"]}, "app_package": {"type": "string"}}, "required": ["action"]}}},
-    {"type": "function", "function": {"name": "communicate", "description": "Make a phone call or send a WhatsApp.", "parameters": {"type": "object", "properties": {"method": {"type": "string", "enum": ["call", "whatsapp"]}, "contact_name": {"type": "string"}, "message_text": {"type": "string"}}, "required": ["method", "contact_name"]}}}
+    {"type": "function", "function": {"name": "query_location_history", "description": "Find out where the user was previously.", "parameters": {"type": "object", "properties": {"date_query": {"type": "string"}}, "required": ["date_query"]}}},
+    {"type": "function", "function": {"name": "search_deep_memory", "description": "Search permanent memory for context matches.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
+    
+    # 🚀 THE UNIVERSAL ACTION TOOL (Replaces control_device & communicate)
+    {"type": "function", "function": {
+        "name": "execute_universal_command", 
+        "description": "Executes ANY device action, app launch, media control, setting adjustment, or communication (call/message) on Android. Use your intelligence to infer the target.", 
+        "parameters": {
+            "type": "object", 
+            "properties": {
+                "category": {"type": "string", "enum": ["APP", "SETTING", "MEDIA", "COMMUNICATE", "SYSTEM", "VISION"]},
+                "target_name": {"type": "string", "description": "Name of app, setting, contact, or hardware (e.g., 'youtube', 'bluetooth', 'amit', 'flashlight')"},
+                "action_value": {"type": "string", "description": "The state or text message (e.g., 'on', 'off', '50%', 'Hello how are you')"}
+            }, 
+            "required": ["category", "target_name"]
+        }
+    }}
 ]
 
 def extract_json_object(raw_text: str):
@@ -526,6 +542,16 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                         action_data1 = args.get("contact_name", "")
                         action_data2 = args.get("message_text", "")
                         tool_result = "Communication intent sent to Android."
+                        # 🚀 NEW: UNIVERSAL INTENT HANDLER
+                    elif func_name == "execute_universal_command":
+                        category = args.get("category", "SYSTEM")
+                        target = args.get("target_name", "")
+                        value = args.get("action_value", "")
+                        
+                        action_type = f"UNIVERSAL_{category}"
+                        action_data1 = target
+                        action_data2 = value
+                        tool_result = f"Universal action {action_type} for {target} sent to Android."
 
                     messages.append({
                         "role": "tool",
