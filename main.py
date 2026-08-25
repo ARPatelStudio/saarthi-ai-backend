@@ -49,10 +49,10 @@ cloudinary.config(
 
 # 🚀 SYSTEM URLS (Vector Brain & n8n Automation)
 VECTOR_SERVER_URL = os.getenv("VECTOR_SERVER_URL")
-N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")  # Add this to Render Environment Variables
+N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")
 
-# Version bump: 50.1.0 (Groq Model Lineup Updated + Routing Bug Fixed)
-app = FastAPI(title="Saarthi AGI Core", version="50.1.0")
+# Version bump: 50.2.0 (Groq Native Vision & GPT-OSS Integrated)
+app = FastAPI(title="Saarthi AGI Core", version="50.2.0")
 
 # ==========================================
 # 🌐 CORS & RATE LIMITER
@@ -105,7 +105,7 @@ async def cleanup_rate_limiter():
             logger.error(f"Rate limiter cleanup error: {e}")
 
 # ==========================================
-# 🔑 LLM PROVIDERS SETUP (GROQ + DEEPSEEK + OPENROUTER)
+# 🔑 LLM PROVIDERS SETUP
 # ==========================================
 api_key = os.getenv("GROQ_API_KEY")
 if not api_key:
@@ -132,10 +132,6 @@ if OPENAI_SDK_AVAILABLE:
         openrouter_client = AsyncOpenAI(api_key=OPENROUTER_API_KEY, base_url="https://openrouter.ai/api/v1")
 
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
-
-# ==========================================
-# 🔐 OPTIONAL API KEY AUTH
-# ==========================================
 SAARTHI_API_KEY = os.getenv("SAARTHI_API_KEY")
 
 async def verify_api_key(x_api_key: str = Header(default=None)):
@@ -221,7 +217,7 @@ class SynthesizeReq(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AGI Omni-Core is Online (V50.1.0)!", "service": "Cognitive Engine Active"}
+    return {"status": "🟢 Saarthi AGI Omni-Core is Online (V50.2.0)!", "service": "Cognitive Engine Active"}
 
 @app.get("/health")
 async def health_check():
@@ -238,17 +234,6 @@ async def health_check():
         "vector_server_linked": bool(VECTOR_SERVER_URL),
         "n8n_automation_linked": bool(N8N_WEBHOOK_URL),
         "groq_api_key_set": bool(api_key),
-        "deepseek_api_key_set": bool(DEEPSEEK_API_KEY),
-        "openrouter_api_key_set": bool(OPENROUTER_API_KEY),
-        "weather_api_key_set": bool(WEATHER_API_KEY),
-        "auth_enforced": bool(SAARTHI_API_KEY),
-    }
-
-@app.get("/api/stats")
-async def stats():
-    return {
-        "uptime_seconds": round(time.time() - START_TIME, 2),
-        "active_ws_connections": len(manager.active_connections) if 'manager' in globals() else 0,
     }
 
 # =======================================================
@@ -285,11 +270,7 @@ saarthi_tools = [
     {"type": "function", "function": {"name": "get_live_weather", "description": "Fetch real-time weather.", "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}}},
     {"type": "function", "function": {"name": "query_location_history", "description": "Find out where the user was previously.", "parameters": {"type": "object", "properties": {"date_query": {"type": "string"}}, "required": ["date_query"]}}},
     {"type": "function", "function": {"name": "search_deep_memory", "description": "Search permanent memory for context matches.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
-    
-    # 🚀 READ SCREEN TOOL
     {"type": "function", "function": {"name": "read_current_screen", "description": "Requests the Android device to read the text and buttons on the user's current screen invisibly using Accessibility. Use this when the user asks you to read, summarize, or interact with what is currently on their screen.", "parameters": {"type": "object", "properties": {}, "required": []}}},
-    
-    # 🚀 THE UNIVERSAL ACTION TOOL
     {"type": "function", "function": {
         "name": "execute_universal_command", 
         "description": "Executes ANY device action, app launch, media control, setting adjustment, or communication (call/message) on Android. Use your intelligence to infer the target.", 
@@ -303,8 +284,6 @@ saarthi_tools = [
             "required": ["category", "target_name"]
         }
     }},
-    
-    # 🚀 n8n CLOUD AUTOMATION TOOL
     {"type": "function", "function": {
         "name": "trigger_cloud_automation", 
         "description": "Trigger a cloud automation workflow via n8n for heavy background tasks (e.g., database entry in Neon PostgreSQL, sending emails, web scraping, API sync).", 
@@ -320,7 +299,6 @@ saarthi_tools = [
 ]
 
 def extract_json_object(raw_text: str):
-    """Scan text and return the first valid JSON object found, or None."""
     if not raw_text: return None
     decoder = json.JSONDecoder()
     idx = 0
@@ -370,14 +348,14 @@ def trigger_n8n_webhook(workflow_name: str, payload_str: str):
 LLM_CALL_TIMEOUT = 25  
 MAX_IMAGE_B64_CHARS = 6_000_000  
 
-# 🎯 GROQ CURRENT PRODUCTION LINEUP (Updated)
+# 🎯 GROQ CURRENT PRODUCTION LINEUP (UPDATED)
 GROQ_MODEL_SET = {
+    "openai/gpt-oss-120b",
     "llama-3.3-70b-versatile",
     "llama-3.1-8b-instant",
-    "openai/gpt-oss-120b",
+    "qwen/qwen3.6-27b",
     "openai/gpt-oss-20b",
-    "groq/compound",
-    "groq/compound-mini",
+    "minimaxai/minimax-m2.7"
 }
 DEEPSEEK_MODEL_SET = {"deepseek-v4-flash", "deepseek-v4-pro", "deepseek-reasoner"}
 
@@ -428,30 +406,26 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
     # 🚀 PHASE 25: UPDATED AI SWARM (Latest Groq Lineup + Fallbacks)
     AVAILABLE_MODELS = [
         # 🟢 GROQ (Primary - Production Models)
+        "openai/gpt-oss-120b",
         "llama-3.3-70b-versatile",
         "llama-3.1-8b-instant",
-        "openai/gpt-oss-120b",
+        "qwen/qwen3.6-27b",
         "openai/gpt-oss-20b",
-        "groq/compound",
+        "minimaxai/minimax-m2.7",
 
         # 🔵 DEEPSEEK V4 SERIES (Secondary)
         "deepseek-v4-flash",
         "deepseek-v4-pro",
         "deepseek-reasoner",
 
-        # 🟠 OPENROUTER: GOOGLE GEMMA (Free Text Fallbacks)
+        # 🟠 OPENROUTER (Free Text Fallbacks)
         "google/gemma-4-26b-a4b-it:free",
         "google/gemma-4-31b-it:free",
-
-        # 🟣 META LLAMA 4 SERIES & OTHERS (OpenRouter)
-        "meta-llama/llama-4-maverick-17b-128e-instruct",
-        "meta-llama/llama-4-scout-17b-16e-instruct",
-        "qwen/qwen3.6-27b",
     ]
 
     try:
         if image_base64:
-            logger.info("👁️ Vision payload detected! Switching to Vision-capable model (OpenRouter).")
+            logger.info("👁️ Vision payload detected! Routing to Native Groq Vision (Qwen 3.6).")
             vision_message = {
                 "role": "user",
                 "content": [
@@ -461,39 +435,22 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
             }
             vision_messages = messages + [vision_message]
             raw_reply = None
-
-            # NOTE: Current Groq production lineup has NO vision model.
-            # Vision requests are routed directly to OpenRouter (Llama 4 Scout/Maverick).
-            if openrouter_client:
-                try:
-                    response = await asyncio.wait_for(
-                        openrouter_client.chat.completions.create(
-                            model="meta-llama/llama-4-scout-17b-16e-instruct",
-                            messages=vision_messages,
-                            max_tokens=800,
-                            temperature=0.7
-                        ),
-                        timeout=LLM_CALL_TIMEOUT
-                    )
-                    raw_reply = response.choices[0].message.content
-                except Exception as vis_err:
-                    logger.warning(f"⚠️ Primary vision model failed: {vis_err}. Trying Maverick fallback...")
-                    try:
-                        response = await asyncio.wait_for(
-                            openrouter_client.chat.completions.create(
-                                model="meta-llama/llama-4-maverick-17b-128e-instruct",
-                                messages=vision_messages,
-                                max_tokens=800,
-                                temperature=0.7
-                            ),
-                            timeout=LLM_CALL_TIMEOUT
-                        )
-                        raw_reply = response.choices[0].message.content
-                    except Exception as vis_err2:
-                        logger.error(f"🔴 Vision fallback also failed: {vis_err2}")
-                        raw_reply = build_apology_json("Sorry boss, abhi vision system down hai, dubara try karo.")
-            else:
-                raw_reply = build_apology_json("Sorry boss, vision system abhi available nahi hai (OpenRouter key missing).")
+            
+            try:
+                # Direct route to Groq's multimodal Qwen model
+                response = await asyncio.wait_for(
+                    client.chat.completions.create(
+                        model="qwen/qwen3.6-27b",
+                        messages=vision_messages,
+                        max_tokens=800,
+                        temperature=0.7
+                    ),
+                    timeout=LLM_CALL_TIMEOUT
+                )
+                raw_reply = response.choices[0].message.content
+            except Exception as vis_err:
+                logger.error(f"🔴 Native Groq Vision failed: {vis_err}")
+                raw_reply = build_apology_json("Sorry boss, abhi vision system down hai, dubara try karo.")
 
             if raw_reply and any(k in user_msg.lower() for k in ["save", "yaad", "remember", "capture", "keep"]):
                 action_type = "SAVE_VISION"
@@ -601,7 +558,6 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                         action_data2 = value
                         tool_result = f"Universal action {action_type} for {target} sent to Android."
                     
-                    # 🚀 n8n CLOUD AUTOMATION TRIGGER
                     elif func_name == "trigger_cloud_automation":
                         tool_result = await asyncio.to_thread(
                             trigger_n8n_webhook, 
@@ -677,7 +633,7 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
         }
 
 # =======================================================
-# 📸 SHARED VISION-SAVE HELPER (Connecting to RENDER 2)
+# 📸 SHARED VISION-SAVE HELPER
 # =======================================================
 async def save_vision_memory(image_b64: str, user_text: str, response_data: dict):
     if deep_mem_col is None:
@@ -989,13 +945,10 @@ async def check_update():
         "version_name": os.getenv("APP_VERSION_NAME", "Jarvis Mark 3.1"),
         "changelog": os.getenv(
             "APP_CHANGELOG",
-            "- Updated Groq model lineup to current production models\n"
-            "- Fixed routing bug (openai/gpt-oss models now correctly hit Groq)\n"
-            "- Vision requests now route directly to OpenRouter (Llama 4 Scout/Maverick)\n"
-            "- Cleaned up AI model fallback list\n"
-            "- Added timeouts to all LLM calls\n"
-            "- More robust JSON parsing\n"
-            "- Added n8n Cloud Automation Engine"
+            "- Removed Deprecated Compound Models\n"
+            "- Added GPT-OSS 120B and Minimax models to Swarm\n"
+            "- Upgraded to Native Groq Multimodal Vision via Qwen 3.6\n"
+            "- Better Error Handling"
         ),
         "download_url": os.getenv("APP_DOWNLOAD_URL", "https://aapki-website.com/jarvis_latest.apk")
     }
@@ -1326,7 +1279,7 @@ async def startup_event():
     if not DEEPSEEK_API_KEY:
         logger.warning("⚠️ DEEPSEEK_API_KEY missing — DeepSeek models won't run.")
     if not OPENROUTER_API_KEY:
-        logger.warning("⚠️ OPENROUTER_API_KEY missing — OpenRouter fallback models AND vision won't run.")
+        logger.warning("⚠️ OPENROUTER_API_KEY missing — OpenRouter fallback models won't run.")
     if not MONGO_URI:
         logger.error("🚨 MONGO_URI missing — all DB features disabled!")
     if not VECTOR_SERVER_URL:
