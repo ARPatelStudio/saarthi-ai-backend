@@ -51,8 +51,8 @@ cloudinary.config(
 VECTOR_SERVER_URL = os.getenv("VECTOR_SERVER_URL")
 N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")  # Add this to Render Environment Variables
 
-# Version bump: 50.0.0 (Cloud Automation & n8n Engine Active)
-app = FastAPI(title="Saarthi AGI Core", version="50.0.0")
+# Version bump: 50.1.0 (Groq Model Lineup Updated + Routing Bug Fixed)
+app = FastAPI(title="Saarthi AGI Core", version="50.1.0")
 
 # ==========================================
 # 🌐 CORS & RATE LIMITER
@@ -221,7 +221,7 @@ class SynthesizeReq(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AGI Omni-Core is Online (V50.0.0)!", "service": "Cognitive Engine Active"}
+    return {"status": "🟢 Saarthi AGI Omni-Core is Online (V50.1.0)!", "service": "Cognitive Engine Active"}
 
 @app.get("/health")
 async def health_check():
@@ -304,7 +304,7 @@ saarthi_tools = [
         }
     }},
     
-    # 🚀 NEW: n8n CLOUD AUTOMATION TOOL
+    # 🚀 n8n CLOUD AUTOMATION TOOL
     {"type": "function", "function": {
         "name": "trigger_cloud_automation", 
         "description": "Trigger a cloud automation workflow via n8n for heavy background tasks (e.g., database entry in Neon PostgreSQL, sending emails, web scraping, API sync).", 
@@ -370,6 +370,17 @@ def trigger_n8n_webhook(workflow_name: str, payload_str: str):
 LLM_CALL_TIMEOUT = 25  
 MAX_IMAGE_B64_CHARS = 6_000_000  
 
+# 🎯 GROQ CURRENT PRODUCTION LINEUP (Updated)
+GROQ_MODEL_SET = {
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "groq/compound",
+    "groq/compound-mini",
+}
+DEEPSEEK_MODEL_SET = {"deepseek-v4-flash", "deepseek-v4-pro", "deepseek-reasoner"}
+
 async def generate_jarvis_response(user_msg: str, android_memory: str = "", image_base64: str = None, history: list = None) -> dict:
     if history is None:
         history = []
@@ -414,32 +425,33 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
     action_data2 = ""
     action_data3 = ""
 
-    # 🚀 PHASE 24: ULTIMATE AI SWARM (Groq + DeepSeek + OpenRouter)
+    # 🚀 PHASE 25: UPDATED AI SWARM (Latest Groq Lineup + Fallbacks)
     AVAILABLE_MODELS = [
-        # 🟢 GROQ FAST ENDPOINTS (Primary)
-        "llama-3.1-70b-versatile",
-        "llama3-70b-8192",
+        # 🟢 GROQ (Primary - Production Models)
+        "llama-3.3-70b-versatile",
         "llama-3.1-8b-instant",
-        
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
+        "groq/compound",
+
         # 🔵 DEEPSEEK V4 SERIES (Secondary)
         "deepseek-v4-flash",
         "deepseek-v4-pro",
         "deepseek-reasoner",
-        
+
         # 🟠 OPENROUTER: GOOGLE GEMMA (Free Text Fallbacks)
         "google/gemma-4-26b-a4b-it:free",
         "google/gemma-4-31b-it:free",
-        
+
         # 🟣 META LLAMA 4 SERIES & OTHERS (OpenRouter)
-        "llama-4-maverick-17b-128e-instruct",
-        "llama-4-scout-17b-16e-instruct",
-        "openai/gpt-oss-120b",
-        "qwen-3.6-27b"
+        "meta-llama/llama-4-maverick-17b-128e-instruct",
+        "meta-llama/llama-4-scout-17b-16e-instruct",
+        "qwen/qwen3.6-27b",
     ]
 
     try:
         if image_base64:
-            logger.info("👁️ Vision payload detected! Switching to Vision model.")
+            logger.info("👁️ Vision payload detected! Switching to Vision-capable model (OpenRouter).")
             vision_message = {
                 "role": "user",
                 "content": [
@@ -450,24 +462,26 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
             vision_messages = messages + [vision_message]
             raw_reply = None
 
-            try:
-                response = await asyncio.wait_for(
-                    client.chat.completions.create(
-                        model="llama-3.2-90b-vision-preview",
-                        messages=vision_messages,
-                        max_tokens=800,
-                        temperature=0.7
-                    ),
-                    timeout=LLM_CALL_TIMEOUT
-                )
-                raw_reply = response.choices[0].message.content
-            except Exception as vis_err:
-                logger.warning(f"⚠️ Primary vision model failed: {vis_err}. Trying OpenRouter fallback...")
-                if openrouter_client:
+            # NOTE: Current Groq production lineup has NO vision model.
+            # Vision requests are routed directly to OpenRouter (Llama 4 Scout/Maverick).
+            if openrouter_client:
+                try:
+                    response = await asyncio.wait_for(
+                        openrouter_client.chat.completions.create(
+                            model="meta-llama/llama-4-scout-17b-16e-instruct",
+                            messages=vision_messages,
+                            max_tokens=800,
+                            temperature=0.7
+                        ),
+                        timeout=LLM_CALL_TIMEOUT
+                    )
+                    raw_reply = response.choices[0].message.content
+                except Exception as vis_err:
+                    logger.warning(f"⚠️ Primary vision model failed: {vis_err}. Trying Maverick fallback...")
                     try:
                         response = await asyncio.wait_for(
                             openrouter_client.chat.completions.create(
-                                model="meta-llama/llama-4-scout-17b-16e-instruct",
+                                model="meta-llama/llama-4-maverick-17b-128e-instruct",
                                 messages=vision_messages,
                                 max_tokens=800,
                                 temperature=0.7
@@ -478,8 +492,8 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                     except Exception as vis_err2:
                         logger.error(f"🔴 Vision fallback also failed: {vis_err2}")
                         raw_reply = build_apology_json("Sorry boss, abhi vision system down hai, dubara try karo.")
-                else:
-                    raw_reply = build_apology_json("Sorry boss, vision system abhi available nahi hai.")
+            else:
+                raw_reply = build_apology_json("Sorry boss, vision system abhi available nahi hai (OpenRouter key missing).")
 
             if raw_reply and any(k in user_msg.lower() for k in ["save", "yaad", "remember", "capture", "keep"]):
                 action_type = "SAVE_VISION"
@@ -496,8 +510,17 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
             for model_name in AVAILABLE_MODELS:
                 try:
                     logger.info(f"🔄 Routing request to AI Matrix: {model_name}")
-                    
-                    if "deepseek" in model_name.lower() and "/" not in model_name:
+
+                    if model_name in GROQ_MODEL_SET:
+                        response = await asyncio.wait_for(
+                            client.chat.completions.create(
+                                model=model_name, messages=messages, tools=saarthi_tools, tool_choice="auto", max_tokens=600, temperature=0.7
+                            ),
+                            timeout=LLM_CALL_TIMEOUT
+                        )
+                        client_used = client
+
+                    elif model_name in DEEPSEEK_MODEL_SET:
                         if not deepseek_client: continue
                         active_tools = saarthi_tools if "reasoner" not in model_name else None
                         response = await asyncio.wait_for(
@@ -507,8 +530,8 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                             timeout=LLM_CALL_TIMEOUT
                         )
                         client_used = deepseek_client
-                        
-                    elif "/" in model_name or "gemma" in model_name or "llama-4" in model_name or "qwen" in model_name:
+
+                    else:
                         if not openrouter_client: continue
                         response = await asyncio.wait_for(
                             openrouter_client.chat.completions.create(
@@ -517,15 +540,6 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                             timeout=LLM_CALL_TIMEOUT
                         )
                         client_used = openrouter_client
-                        
-                    else:
-                        response = await asyncio.wait_for(
-                            client.chat.completions.create(
-                                model=model_name, messages=messages, tools=saarthi_tools, tool_choice="auto", max_tokens=600, temperature=0.7
-                            ),
-                            timeout=LLM_CALL_TIMEOUT
-                        )
-                        client_used = client
                     
                     response_message = response.choices[0].message
                     used_model = model_name
@@ -587,7 +601,7 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                         action_data2 = value
                         tool_result = f"Universal action {action_type} for {target} sent to Android."
                     
-                    # 🚀 NEW: n8n CLOUD AUTOMATION TRIGGER
+                    # 🚀 n8n CLOUD AUTOMATION TRIGGER
                     elif func_name == "trigger_cloud_automation":
                         tool_result = await asyncio.to_thread(
                             trigger_n8n_webhook, 
@@ -975,11 +989,12 @@ async def check_update():
         "version_name": os.getenv("APP_VERSION_NAME", "Jarvis Mark 3.1"),
         "changelog": os.getenv(
             "APP_CHANGELOG",
-            "- Fixed critical crash bug (missing openai SDK)\n"
+            "- Updated Groq model lineup to current production models\n"
+            "- Fixed routing bug (openai/gpt-oss models now correctly hit Groq)\n"
+            "- Vision requests now route directly to OpenRouter (Llama 4 Scout/Maverick)\n"
             "- Cleaned up AI model fallback list\n"
             "- Added timeouts to all LLM calls\n"
             "- More robust JSON parsing\n"
-            "- Vision fallback chain added\n"
             "- Added n8n Cloud Automation Engine"
         ),
         "download_url": os.getenv("APP_DOWNLOAD_URL", "https://aapki-website.com/jarvis_latest.apk")
@@ -1311,7 +1326,7 @@ async def startup_event():
     if not DEEPSEEK_API_KEY:
         logger.warning("⚠️ DEEPSEEK_API_KEY missing — DeepSeek models won't run.")
     if not OPENROUTER_API_KEY:
-        logger.warning("⚠️ OPENROUTER_API_KEY missing — OpenRouter fallback models won't run.")
+        logger.warning("⚠️ OPENROUTER_API_KEY missing — OpenRouter fallback models AND vision won't run.")
     if not MONGO_URI:
         logger.error("🚨 MONGO_URI missing — all DB features disabled!")
     if not VECTOR_SERVER_URL:
