@@ -15,3 +15,4 @@ certifi
 cloudinary
 piper-tts
 gTTS
+firebase-admin
