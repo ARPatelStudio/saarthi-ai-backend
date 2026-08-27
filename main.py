@@ -29,6 +29,8 @@ import certifi
 from bson import ObjectId
 import cloudinary
 import cloudinary.uploader
+import firebase_admin
+from firebase_admin import credentials, messaging
 
 # ==========================================
 # 🪵 LOGS SETUP
@@ -40,6 +42,19 @@ load_dotenv()
 
 START_TIME = time.time()
 
+# ==========================================
+# 🔥 FIREBASE ADMIN SETUP (Deep Sleep Pushes)
+# ==========================================
+try:
+    if os.path.exists("firebase-credentials.json"):
+        cred = credentials.Certificate("firebase-credentials.json")
+        firebase_admin.initialize_app(cred)
+        logger.info("🟢 Firebase Admin SDK Initialized Successfully!")
+    else:
+        logger.warning("⚠️ firebase-credentials.json not found! Deep sleep pushes will not work.")
+except Exception as e:
+    logger.error(f"🔴 Firebase Admin Setup Error: {e}")
+
 # Cloudinary Configuration
 cloudinary.config(
     cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
@@ -50,6 +65,9 @@ cloudinary.config(
 # 🚀 SYSTEM URLS (Vector Brain & n8n Automation)
 VECTOR_SERVER_URL = os.getenv("VECTOR_SERVER_URL")
 N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")
+
+# 🚀 NAYA: FCM Token ab Environment Variable se aayega
+FCM_TARGET_TOKEN = os.getenv("FCM_TARGET_TOKEN")
 
 # Version bump: 50.2.0 (Groq Native Vision & GPT-OSS Integrated)
 app = FastAPI(title="Saarthi AGI Core", version="50.2.0")
@@ -1225,7 +1243,7 @@ async def track_location(req: LocationTrackRequest):
 def query_location_history(date_query: str):
     try:
         if location_col is None:
-            return "Location database abhi available nahi hai boss."
+            return "Location database abhi available nahi boss."
 
         ist_timezone = pytz.timezone('Asia/Kolkata')
         if date_query.lower() in ["today", "aaj"]:
@@ -1273,12 +1291,13 @@ def get_live_weather(location: str):
         return "Weather API mein thoda glitch aaya boss."
 
 # =======================================================
-# 🚀 NAYA ENDPOINT: J.A.R.V.I.S. Push Alert Receiver
+# 🚀 ENDPOINT: J.A.R.V.I.S. Push Alert Receiver (Env Var Secured)
 # =======================================================
 @app.post("/api/remote_command")
 async def handle_remote_command(payload: RemoteCommandPayload, x_api_key: str = Header(None)):
-    # 1. Security Check (Sirf aapka n8n hi isko hit kar sake)
-    if x_api_key != "AmitPatel_Jarvis_Core_2026":
+    
+    # 1. Security Check (Using Environment Variable)
+    if SAARTHI_API_KEY and x_api_key != SAARTHI_API_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized Boss")
     
     # 2. Android App ke LiveAudioEngine format mein data pack karna
@@ -1290,10 +1309,36 @@ async def handle_remote_command(payload: RemoteCommandPayload, x_api_key: str = 
         "action_data2": ""
     }
     
+    response_logs = []
+    
     try:
-        # 3. Android app ko active WebSocket par broadcast karna
+        # 3. Live Mode (WebSocket) par bhejna (Agar app open hai)
         await manager.broadcast(json.dumps(alert_msg)) 
-        return {"status": "success", "message": "Alert transmitted to Jarvis Android"}
+        response_logs.append("WebSocket Broadcast: Success")
+        
+        # 4. DEEP SLEEP FIREBASE PUSH (Agar app background ya kill hai)
+        # 🚀 Token ab securely .env se fetch ho raha hai
+        if FCM_TARGET_TOKEN:
+            try:
+                # FCM sirf 'data' strings accept karta hai
+                message = messaging.Message(
+                    data={
+                        "command": payload.command,
+                        "type": payload.type,
+                        "sender": payload.sender
+                    },
+                    token=FCM_TARGET_TOKEN
+                )
+                response = messaging.send(message)
+                response_logs.append(f"FCM Push: Success (ID: {response})")
+            except Exception as fcm_err:
+                response_logs.append(f"FCM Push Failed: {fcm_err}")
+                logger.error(f"FCM Push Error: {fcm_err}")
+        else:
+            response_logs.append("FCM Push Skipped: Token not found in Environment Variables")
+            logger.warning("FCM_TARGET_TOKEN is missing in Render ENV!")
+
+        return {"status": "success", "message": "Alert processed", "details": response_logs}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to transmit: {str(e)}")
 
