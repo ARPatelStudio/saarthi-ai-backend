@@ -215,6 +215,13 @@ class SynthesizeReq(BaseModel):
     text: str = Field(..., min_length=1, max_length=1000)
     voice: str = Field(default="papa_vocals", max_length=50)
 
+# 🚀 NAYA: Data Model jo n8n se aayega
+class RemoteCommandPayload(BaseModel):
+    target_user: str
+    command: str
+    type: str
+    sender: str
+
 @app.get("/")
 async def root():
     return {"status": "🟢 Saarthi AGI Omni-Core is Online (V50.2.0)!", "service": "Cognitive Engine Active"}
@@ -258,6 +265,14 @@ class ConnectionManager:
             await websocket.send_json(message)
         except Exception as e:
             logger.error(f"Failed to send JSON message: {e}")
+
+    # 🚀 NAYA FUNCTION ADD KIYA GAYA HAI TAक्यूKI APP CRASH NA HO
+    async def broadcast(self, message: str):
+        for connection in self.active_connections:
+            try:
+                await connection.send_text(message)
+            except Exception as e:
+                logger.error(f"Failed to broadcast message: {e}")
 
 manager = ConnectionManager()
 
@@ -1256,6 +1271,31 @@ def get_live_weather(location: str):
     except Exception as e:
         logger.error(f"Weather API error: {e}")
         return "Weather API mein thoda glitch aaya boss."
+
+# =======================================================
+# 🚀 NAYA ENDPOINT: J.A.R.V.I.S. Push Alert Receiver
+# =======================================================
+@app.post("/api/remote_command")
+async def handle_remote_command(payload: RemoteCommandPayload, x_api_key: str = Header(None)):
+    # 1. Security Check (Sirf aapka n8n hi isko hit kar sake)
+    if x_api_key != "AmitPatel_Jarvis_Core_2026":
+        raise HTTPException(status_code=401, detail="Unauthorized Boss")
+    
+    # 2. Android App ke LiveAudioEngine format mein data pack karna
+    alert_msg = {
+        "type": "ai_response",
+        "reply": payload.command,
+        "action": payload.type,
+        "action_data1": "",
+        "action_data2": ""
+    }
+    
+    try:
+        # 3. Android app ko active WebSocket par broadcast karna
+        await manager.broadcast(json.dumps(alert_msg)) 
+        return {"status": "success", "message": "Alert transmitted to Jarvis Android"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to transmit: {str(e)}")
 
 # =======================================================
 # 🛡️ GLOBAL EXCEPTION HANDLER
