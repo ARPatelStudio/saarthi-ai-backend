@@ -1192,51 +1192,101 @@ async def pc_command(req: PCCommandReq):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# main.py ke andar track_location ko replace karein
+
 @app.post("/api/track_location")
 async def track_location(req: LocationTrackRequest):
     try:
-        if not WEATHER_API_KEY:
-            return {"status": "No Weather API"}
-
-        url = (
-            f"http://api.openweathermap.org/data/2.5/weather?lat={req.latitude}"
-            f"&lon={req.longitude}&appid={WEATHER_API_KEY}&units=metric&lang=hi"
-        )
-        weather_res = await asyncio.to_thread(lambda: requests.get(url, timeout=8).json())
-
-        if weather_res.get("cod") != 200:
-            return {"status": "Weather Error"}
-
-        city_name = weather_res.get("name", "Unknown Area")
-        weather_desc = weather_res["weather"][0]["description"].lower()
-        weather_id = weather_res["weather"][0]["id"]
-
         ist_timezone = pytz.timezone('Asia/Kolkata')
         live_time = datetime.datetime.now(ist_timezone)
+        lat = req.latitude
+        lon = req.longitude
 
+        alerts_detected = []
+        city_name = "Unknown Area"
+        weather_desc = "clear"
+
+        # =========================================================
+        # 1. LIVE WEATHER & SEVERE ALERTS (OpenWeatherMap)
+        # =========================================================
+        if WEATHER_API_KEY:
+            try:
+                weather_url = (
+                    f"http://api.openweathermap.org/data/2.5/weather?lat={lat}"
+                    f"&lon={lon}&appid={WEATHER_API_KEY}&units=metric&lang=hi"
+                )
+                weather_res = await asyncio.to_thread(lambda: requests.get(weather_url, timeout=8).json())
+
+                if weather_res.get("cod") == 200:
+                    city_name = weather_res.get("name", "Unknown Area")
+                    weather_desc = weather_res["weather"][0]["description"].lower()
+                    weather_id = weather_res["weather"][0]["id"]
+
+                    # 🌪️ Universal Extreme Weather Detection
+                    if (200 <= weather_id <= 299):
+                        alerts_detected.append(f"yahan thunderstorm (bhaari toofan) chal raha hai.")
+                    elif (500 <= weather_id <= 511) or (weather_id == 522) or (weather_id == 531):
+                        alerts_detected.append(f"bhaari baarish aur badh (flood) jaisi sthiti ho sakti hai.")
+                    elif (600 <= weather_id <= 699):
+                        alerts_detected.append(f"heavy snowfall ya barfbaari ka khatra hai.")
+                    elif weather_id == 781:
+                        alerts_detected.append(f"TORNADO ALERT! Kripya turant surakshit jagah par jayein!")
+                    elif weather_id == 762: # Volcanic ash
+                        alerts_detected.append(f"Volcanic ash detect hui hai.")
+            except Exception as e:
+                logger.error(f"Weather API Error: {e}")
+
+        # =========================================================
+        # 2. UNIVERSAL EARTHQUAKE DETECTION (USGS API)
+        # =========================================================
+        try:
+            # Check for earthquakes >= 4.5 magnitude in 100km radius in the last 24 hours
+            yesterday_str = (live_time - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+            usgs_url = (
+                f"https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson"
+                f"&latitude={lat}&longitude={lon}&maxradiuskm=100&minmagnitude=4.5&starttime={yesterday_str}"
+            )
+            usgs_res = await asyncio.to_thread(lambda: requests.get(usgs_url, timeout=8).json())
+            
+            features = usgs_res.get("features", [])
+            if features:
+                latest_quake = features[0]["properties"]
+                mag = latest_quake.get("mag")
+                place = latest_quake.get("place")
+                alerts_detected.append(f"Aapke 100km ke daayre mein ({place}) {mag} magnitude ka bhukamp detect hua hai.")
+        except Exception as e:
+            logger.error(f"USGS Earthquake API Error: {e}")
+
+        # =========================================================
+        # 3. SAVE TO MONGODB HISTORY
+        # =========================================================
         if location_col is not None:
             def db_ops():
                 location_col.insert_one({
                     "date": live_time.strftime('%Y-%m-%d'),
                     "time": live_time.strftime('%I:%M %p'),
-                    "latitude": req.latitude,
-                    "longitude": req.longitude,
+                    "latitude": lat,
+                    "longitude": lon,
                     "city": city_name,
-                    "weather": weather_desc
+                    "weather": weather_desc,
+                    "threat_level": len(alerts_detected)
                 })
+                # Keep DB size optimized
                 if location_col.count_documents({}) > 10000:
                     oldest_record = location_col.find().sort("_id", 1).limit(1)[0]
                     location_col.delete_one({"_id": oldest_record["_id"]})
             await asyncio.to_thread(db_ops)
 
-        is_bad_weather = (
-            (200 <= weather_id <= 299) or (500 <= weather_id <= 599) or
-            (600 <= weather_id <= 699) or weather_id == 781
-        )
-        if is_bad_weather:
-            return {"alert": f"Boss alert! Aap jahan hain ({city_name}), wahan {weather_desc} hone ki sambhavna hai. Kripya dhyan rakhein!"}
+        # =========================================================
+        # 4. DISPATCH THE OMNI-ALERT
+        # =========================================================
+        if alerts_detected:
+            combined_warnings = " aur ".join(alerts_detected)
+            final_alert = f"Boss alert! Aapki live location ({city_name}) par ek khatra detect hua hai: {combined_warnings} Kripya alert rahein."
+            return {"alert": final_alert, "status": "DANGER"}
 
-        return {"status": "Saved safely"}
+        return {"status": "Safe. Route is clear."}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
