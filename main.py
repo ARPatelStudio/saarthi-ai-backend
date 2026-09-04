@@ -395,12 +395,12 @@ saarthi_tools = [
     }},
     {"type": "function", "function": {
         "name": "manage_finance_database",
-        "description": "Read, set, or update the user's monthly budget and calculate total expenses directly from Neon PostgreSQL DB.",
+        "description": "Read budget status, set new budget limit, or modify (+/-) existing budget limit directly from Neon PostgreSQL DB.",
         "parameters": {
             "type": "object",
             "properties": {
-                "action": {"type": "string", "enum": ["GET_BUDGET", "SET_BUDGET", "INCREASE_BUDGET", "GET_EXPENSES"]},
-                "amount": {"type": "number", "description": "The amount to set or add to the budget (use 0 if just fetching)."}
+                "action": {"type": "string", "enum": ["GET_BUDGET_STATUS", "SET_BUDGET", "MODIFY_BUDGET"]},
+                "amount": {"type": "number", "description": "Amount to set or modify (use negative for deduction, 0 for fetching)."}
             },
             "required": ["action"]
         }
@@ -450,14 +450,13 @@ def trigger_n8n_webhook(workflow_name: str, payload_str: str):
         logger.error(f"n8n Webhook error: {e}")
         return "Failed to trigger cloud automation. Server might be down."
 
-# 🚀 NAYA: URL Cleaner Armor applied!
+# 🚀 NAYA: URL Cleaner Armor applied!# 🚀 NAYA: Smart Finance Calculator (Auto Math & Modify)
 def execute_finance_db_action(action: str, amount: float = 0.0):
     raw_url = os.getenv("NEON_DB_URL", "")
-    # Armor: Remove any accidental quotes or whitespaces
     clean_db_url = raw_url.strip().strip('"').strip("'")
     
     if not clean_db_url or not clean_db_url.startswith("postgres"):
-        return "Boss, Neon DB ka link galat format mein hai. HF Secrets mein check karein, link 'postgresql://' se shuru hona chahiye aur quotes (\") nahi hone chahiye."
+        return "Boss, Neon DB link error."
     
     try:
         import psycopg2
@@ -466,52 +465,63 @@ def execute_finance_db_action(action: str, amount: float = 0.0):
         conn = psycopg2.connect(clean_db_url)
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        if action == "GET_BUDGET":
-            cursor.execute("SELECT amount FROM jarvis_budgets WHERE category = 'monthly_limit';")
-            res = cursor.fetchone()
-            budget = res['amount'] if res else 0
+        if action == "GET_BUDGET_STATUS":
+            # 1. Limit Fetch Karo
+            cursor.execute("""
+                SELECT amount FROM jarvis_budgets 
+                WHERE user_id = 1 AND category_id = (SELECT id FROM jarvis_expense_categories WHERE name = 'Overall' LIMIT 1)
+                AND period_month = EXTRACT(MONTH FROM CURRENT_DATE)::INT 
+                AND period_year = EXTRACT(YEAR FROM CURRENT_DATE)::INT;
+            """)
+            res_limit = cursor.fetchone()
+            budget_limit = float(res_limit['amount']) if res_limit else 0.0
+
+            # 2. Total Kharcha Fetch Karo
+            cursor.execute("""
+                SELECT SUM(amount) as total_spent FROM jarvis_expenses 
+                WHERE user_id = 1 AND is_deleted = FALSE 
+                AND date_trunc('month', transaction_date) = date_trunc('month', CURRENT_DATE);
+            """)
+            res_spent = cursor.fetchone()
+            total_spent = float(res_spent['total_spent']) if res_spent and res_spent['total_spent'] else 0.0
+
+            # 3. Math Calculate Karo
+            remaining = budget_limit - total_spent
             conn.close()
-            return f"Current monthly budget limit is {budget}."
+            return f"Boss, this month's budget limit is {budget_limit}. Total spent is {total_spent}. Remaining balance is {remaining}."
             
         elif action == "SET_BUDGET":
+            # RESET ya NEW SET ke liye
             cursor.execute("""
-                INSERT INTO jarvis_budgets (category, amount)
-                VALUES ('monthly_limit', %s)
-                ON CONFLICT (category) DO UPDATE SET amount = EXCLUDED.amount, updated_at = NOW();
+                INSERT INTO jarvis_budgets (user_id, category_id, amount, period_month, period_year)
+                VALUES (1, (SELECT id FROM jarvis_expense_categories WHERE name = 'Overall' LIMIT 1), %s, EXTRACT(MONTH FROM CURRENT_DATE)::INT, EXTRACT(YEAR FROM CURRENT_DATE)::INT)
+                ON CONFLICT (user_id, category_id, period_month, period_year) 
+                DO UPDATE SET amount = EXCLUDED.amount, updated_at = NOW();
             """, (amount,))
             conn.commit()
             conn.close()
-            return f"Boss, budget successfully set to {amount}."
+            return f"Boss, monthly budget limit has been set to {amount}."
             
-        elif action == "INCREASE_BUDGET":
+        elif action == "MODIFY_BUDGET":
+            # PLUS (+) aur MINUS (-) dono ke liye
             cursor.execute("""
-                UPDATE jarvis_budgets
-                SET amount = amount + %s, updated_at = NOW()
-                WHERE category = 'monthly_limit'
+                INSERT INTO jarvis_budgets (user_id, category_id, amount, period_month, period_year)
+                VALUES (1, (SELECT id FROM jarvis_expense_categories WHERE name = 'Overall' LIMIT 1), %s, EXTRACT(MONTH FROM CURRENT_DATE)::INT, EXTRACT(YEAR FROM CURRENT_DATE)::INT)
+                ON CONFLICT (user_id, category_id, period_month, period_year) 
+                DO UPDATE SET amount = jarvis_budgets.amount + EXCLUDED.amount, updated_at = NOW()
                 RETURNING amount;
             """, (amount,))
             res = cursor.fetchone()
             new_budget = res['amount'] if res else amount
             conn.commit()
             conn.close()
-            return f"Boss, budget increased by {amount}. The new total budget limit is {new_budget}."
-            
-        elif action == "GET_EXPENSES":
-            cursor.execute("""
-                SELECT SUM(amount) as total_spent FROM jarvis_expenses
-                WHERE date_trunc('month', transaction_date) = date_trunc('month', CURRENT_DATE);
-            """)
-            res = cursor.fetchone()
-            total_spent = res['total_spent'] if res and res['total_spent'] else 0
-            conn.close()
-            return f"Boss, total expenses this month so far is {total_spent}."
+            action_word = "increased" if amount > 0 else "decreased"
+            return f"Boss, budget limit {action_word} by {abs(amount)}. New limit is {new_budget}."
             
         else:
             conn.close()
             return "Unknown finance action."
             
-    except ImportError:
-        return "psycopg2 library is missing in Omni-Core. Cannot execute SQL."
     except Exception as e:
         logger.error(f"Finance DB Error: {e}")
         return f"Neon Database error boss: {str(e)}"
