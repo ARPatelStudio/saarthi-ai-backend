@@ -13,6 +13,7 @@ import struct
 import asyncio
 import tempfile
 import subprocess
+import threading
 from collections import defaultdict, deque
 from typing import List
 from fastapi import (
@@ -31,6 +32,7 @@ import cloudinary
 import cloudinary.uploader
 import firebase_admin
 from firebase_admin import credentials, messaging
+import pinecone
 
 # ==========================================
 # 🪵 LOGS SETUP
@@ -40,7 +42,15 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
+os.environ.setdefault("HF_HOME", "/tmp/hf")
+os.environ.setdefault("TRANSFORMERS_CACHE", "/tmp/hf")
+os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", "/tmp/hf")
+os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "1")
+
 START_TIME = time.time()
+
+# 🚀 GLOBAL VARIABLE FOR REMOTE COMMAND FETCHING
+latest_remote_command = None
 
 # ==========================================
 # 🔥 FIREBASE ADMIN SETUP (Deep Sleep Pushes)
@@ -62,15 +72,13 @@ cloudinary.config(
     api_secret=os.getenv("CLOUDINARY_API_SECRET")
 )
 
-# 🚀 SYSTEM URLS (Vector Brain & n8n Automation)
-VECTOR_SERVER_URL = os.getenv("VECTOR_SERVER_URL")
+# 🚀 SYSTEM URLS & TOKENS
 N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")
-
-# 🚀 NAYA: FCM Token ab Environment Variable se aayega
 FCM_TARGET_TOKEN = os.getenv("FCM_TARGET_TOKEN")
+NEON_DB_URL = os.getenv("NEON_DB_URL") 
 
-# Version bump: 50.2.0 (Groq Native Vision & GPT-OSS Integrated)
-app = FastAPI(title="Saarthi AGI Core", version="50.2.0")
+# Version bump: 51.1.5 (Omni-Threat & Finance DB Verified)
+app = FastAPI(title="Saarthi AGI Core", version="51.1.5")
 
 # ==========================================
 # 🌐 CORS & RATE LIMITER
@@ -184,6 +192,49 @@ if MONGO_URI:
 else:
     logger.error("🚨 MONGO_URI missing from environment variables! DB features disabled.")
 
+# ==========================================
+# 🌲 NATIVE PINECONE & EMBEDDER SETUP (LAZY)
+# ==========================================
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX", "saarthi-index")
+pc_client = None
+pinecone_index = None
+embedder = None
+_embedder_lock = threading.Lock()
+
+def get_embedder():
+    global embedder
+    if embedder is None:
+        with _embedder_lock:
+            if embedder is None:
+                from sentence_transformers import SentenceTransformer
+                logger.info("⏳ Loading MiniLM embedder (lazy)...")
+                embedder = SentenceTransformer(
+                    "sentence-transformers/all-MiniLM-L6-v2",
+                    device="cpu"
+                )
+                logger.info("🟢 Embedder ready")
+    return embedder
+
+if PINECONE_API_KEY:
+    try:
+        pc_client = pinecone.Pinecone(api_key=PINECONE_API_KEY)
+        existing_indexes = [idx.name for idx in pc_client.list_indexes()]
+        if PINECONE_INDEX_NAME not in existing_indexes:
+            logger.info(f"⏳ Creating Pinecone Index: {PINECONE_INDEX_NAME}...")
+            pc_client.create_index(
+                name=PINECONE_INDEX_NAME,
+                dimension=384,
+                metric="cosine",
+                spec=pinecone.ServerlessSpec(cloud="aws", region="us-east-1")
+            )
+            logger.info("✅ Pinecone Index Created!")
+
+        pinecone_index = pc_client.Index(PINECONE_INDEX_NAME)
+        logger.info("🌲 Pinecone connected (embedder will load after server start)")
+    except Exception as e:
+        logger.error(f"🔴 Pinecone Initialization Error: {e}")
+
 # 📦 PYDANTIC MODELS
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=3000)
@@ -233,16 +284,28 @@ class SynthesizeReq(BaseModel):
     text: str = Field(..., min_length=1, max_length=1000)
     voice: str = Field(default="papa_vocals", max_length=50)
 
-# 🚀 NAYA: Data Model jo n8n se aayega
 class RemoteCommandPayload(BaseModel):
     target_user: str
     command: str
     type: str
     sender: str
 
+# Vector API Models
+class UpsertRequest(BaseModel):
+    id: str
+    text: str
+    metadata: dict = {}
+
+class SearchRequest(BaseModel):
+    query: str
+    top_k: int = 3
+
+class DeleteRequest(BaseModel):
+    id: str
+
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AGI Omni-Core is Online (V50.2.0)!", "service": "Cognitive Engine Active"}
+    return {"status": "🟢 Saarthi AGI Omni-Core is Online (V51.1.5 Monolithic)!", "service": "Cognitive Engine Active"}
 
 @app.get("/health")
 async def health_check():
@@ -252,12 +315,14 @@ async def health_check():
             mongo_client.admin.command('ping')
             mongo_ok = True
         except Exception:
-            mongo_ok = False
+            pass
     return {
         "status": "ok",
         "mongo_connected": mongo_ok,
-        "vector_server_linked": bool(VECTOR_SERVER_URL),
+        "pinecone_linked": bool(pinecone_index),
+        "embedder_ready": embedder is not None,
         "n8n_automation_linked": bool(N8N_WEBHOOK_URL),
+        "neon_db_linked": bool(NEON_DB_URL),
         "groq_api_key_set": bool(api_key),
     }
 
@@ -284,7 +349,6 @@ class ConnectionManager:
         except Exception as e:
             logger.error(f"Failed to send JSON message: {e}")
 
-    # 🚀 NAYA FUNCTION ADD KIYA GAYA HAI TAक्यूKI APP CRASH NA HO
     async def broadcast(self, message: str):
         for connection in self.active_connections:
             try:
@@ -305,40 +369,54 @@ saarthi_tools = [
     {"type": "function", "function": {"name": "search_deep_memory", "description": "Search permanent memory for context matches.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
     {"type": "function", "function": {"name": "read_current_screen", "description": "Requests the Android device to read the text and buttons on the user's current screen invisibly using Accessibility. Use this when the user asks you to read, summarize, or interact with what is currently on their screen.", "parameters": {"type": "object", "properties": {}, "required": []}}},
     {"type": "function", "function": {
-        "name": "execute_universal_command", 
-        "description": "Executes ANY device action, app launch, media control, setting adjustment, or communication (call/message) on Android. Use your intelligence to infer the target.", 
+        "name": "execute_universal_command",
+        "description": "Executes ANY device action, app launch, media control, setting adjustment, or communication (call/message) on Android. Use your intelligence to infer the target.",
         "parameters": {
-            "type": "object", 
+            "type": "object",
             "properties": {
                 "category": {"type": "string", "enum": ["APP", "SETTING", "MEDIA", "COMMUNICATE", "SYSTEM", "VISION"]},
                 "target_name": {"type": "string", "description": "Name of app, setting, contact, or hardware (e.g., 'youtube', 'bluetooth', 'amit', 'flashlight')"},
                 "action_value": {"type": "string", "description": "The state or text message (e.g., 'on', 'off', '50%', 'Hello how are you')"}
-            }, 
+            },
             "required": ["category", "target_name"]
         }
     }},
     {"type": "function", "function": {
-        "name": "trigger_cloud_automation", 
-        "description": "Trigger a cloud automation workflow via n8n for heavy background tasks (e.g., database entry in Neon PostgreSQL, sending emails, web scraping, API sync).", 
+        "name": "trigger_cloud_automation",
+        "description": "Trigger a cloud automation workflow via n8n for heavy background tasks (e.g., sending emails, web scraping, API sync). Does NOT read finance data.",
         "parameters": {
-            "type": "object", 
+            "type": "object",
             "properties": {
-                "workflow_name": {"type": "string", "description": "The name of the task (e.g., 'save_to_neon_db', 'send_email', 'scrape_website')"},
+                "workflow_name": {"type": "string", "description": "The name of the task (e.g., 'send_email', 'scrape_website')"},
                 "payload_json": {"type": "string", "description": "JSON string containing the data needed for the workflow"}
-            }, 
+            },
             "required": ["workflow_name", "payload_json"]
+        }
+    }},
+    {"type": "function", "function": {
+        "name": "manage_finance_database",
+        "description": "Read, set, or update the user's monthly budget and calculate total expenses directly from Neon PostgreSQL DB.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["GET_BUDGET", "SET_BUDGET", "INCREASE_BUDGET", "GET_EXPENSES"]},
+                "amount": {"type": "number", "description": "The amount to set or add to the budget (use 0 if just fetching)."}
+            },
+            "required": ["action"]
         }
     }}
 ]
 
 def extract_json_object(raw_text: str):
-    if not raw_text: return None
+    if not raw_text:
+        return None
     decoder = json.JSONDecoder()
     idx = 0
     length = len(raw_text)
     while idx < length:
         start = raw_text.find('{', idx)
-        if start == -1: return None
+        if start == -1:
+            return None
         try:
             obj, _ = decoder.raw_decode(raw_text, start)
             return obj
@@ -349,16 +427,13 @@ def extract_json_object(raw_text: str):
 def build_apology_json(reply_text: str, thought: str = "Internal fallback triggered", emotion: str = "apologetic") -> str:
     return json.dumps({"inner_monologue": thought, "emotion": emotion, "reply": reply_text})
 
-# =======================================================
-# 🌐 n8n WEBHOOK EXECUTOR
-# =======================================================
 def trigger_n8n_webhook(workflow_name: str, payload_str: str):
     if not N8N_WEBHOOK_URL:
         return "Boss, n8n Webhook URL is missing from environment variables."
     try:
         try:
             payload = json.loads(payload_str)
-        except:
+        except Exception:
             payload = {"raw_text": payload_str}
 
         data = {
@@ -367,7 +442,7 @@ def trigger_n8n_webhook(workflow_name: str, payload_str: str):
             "timestamp": datetime.datetime.now().isoformat()
         }
         res = requests.post(N8N_WEBHOOK_URL, json=data, timeout=10)
-        
+
         if res.status_code == 200:
             return f"Cloud automation '{workflow_name}' triggered successfully via n8n!"
         return f"n8n webhook failed with status {res.status_code}."
@@ -375,13 +450,128 @@ def trigger_n8n_webhook(workflow_name: str, payload_str: str):
         logger.error(f"n8n Webhook error: {e}")
         return "Failed to trigger cloud automation. Server might be down."
 
+# 🚀 NAYA: URL Cleaner Armor applied!
+def execute_finance_db_action(action: str, amount: float = 0.0):
+    raw_url = os.getenv("NEON_DB_URL", "")
+    # Armor: Remove any accidental quotes or whitespaces
+    clean_db_url = raw_url.strip().strip('"').strip("'")
+    
+    if not clean_db_url or not clean_db_url.startswith("postgres"):
+        return "Boss, Neon DB ka link galat format mein hai. HF Secrets mein check karein, link 'postgresql://' se shuru hona chahiye aur quotes (\") nahi hone chahiye."
+    
+    try:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        
+        conn = psycopg2.connect(clean_db_url)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        if action == "GET_BUDGET":
+            cursor.execute("SELECT amount FROM jarvis_budgets WHERE category = 'monthly_limit';")
+            res = cursor.fetchone()
+            budget = res['amount'] if res else 0
+            conn.close()
+            return f"Current monthly budget limit is {budget}."
+            
+        elif action == "SET_BUDGET":
+            cursor.execute("""
+                INSERT INTO jarvis_budgets (category, amount)
+                VALUES ('monthly_limit', %s)
+                ON CONFLICT (category) DO UPDATE SET amount = EXCLUDED.amount, updated_at = NOW();
+            """, (amount,))
+            conn.commit()
+            conn.close()
+            return f"Boss, budget successfully set to {amount}."
+            
+        elif action == "INCREASE_BUDGET":
+            cursor.execute("""
+                UPDATE jarvis_budgets
+                SET amount = amount + %s, updated_at = NOW()
+                WHERE category = 'monthly_limit'
+                RETURNING amount;
+            """, (amount,))
+            res = cursor.fetchone()
+            new_budget = res['amount'] if res else amount
+            conn.commit()
+            conn.close()
+            return f"Boss, budget increased by {amount}. The new total budget limit is {new_budget}."
+            
+        elif action == "GET_EXPENSES":
+            cursor.execute("""
+                SELECT SUM(amount) as total_spent FROM jarvis_expenses
+                WHERE date_trunc('month', transaction_date) = date_trunc('month', CURRENT_DATE);
+            """)
+            res = cursor.fetchone()
+            total_spent = res['total_spent'] if res and res['total_spent'] else 0
+            conn.close()
+            return f"Boss, total expenses this month so far is {total_spent}."
+            
+        else:
+            conn.close()
+            return "Unknown finance action."
+            
+    except ImportError:
+        return "psycopg2 library is missing in Omni-Core. Cannot execute SQL."
+    except Exception as e:
+        logger.error(f"Finance DB Error: {e}")
+        return f"Neon Database error boss: {str(e)}"
+
+def perform_web_search(query: str):
+    try:
+        results = DDGS().text(query, max_results=2)
+        if not results:
+            return "Web par kuch nahi mila boss."
+        summary = "\n".join([f"- {r['title']}: {r['body']}" for r in results])
+        return f"Live Web Data for '{query}':\n{summary}"
+    except Exception as e:
+        logger.error(f"Web search error: {e}")
+        return "Search engine mein issue hai boss."
+
+def get_live_weather(location: str):
+    if not WEATHER_API_KEY:
+        return "Weather API key missing hai boss."
+    try:
+        url = f"http://api.openweathermap.org/data/2.5/weather?q={location}&appid={WEATHER_API_KEY}&units=metric&lang=hi"
+        response = requests.get(url, timeout=8).json()
+        if response.get("cod") != 200:
+            return f"Sorry boss, mujhe {location} ka exact weather data nahi mil pa raha."
+        return f"Live Update: {location} mein abhi temp {response['main']['temp']}°C hai aur mausam '{response['weather'][0]['description']}' jaisa hai."
+    except Exception as e:
+        logger.error(f"Weather API error: {e}")
+        return "Weather API mein thoda glitch aaya boss."
+
+def query_location_history(date_query: str):
+    try:
+        if location_col is None:
+            return "Location database abhi available nahi boss."
+
+        ist_timezone = pytz.timezone('Asia/Kolkata')
+        if date_query.lower() in ["today", "aaj"]:
+            target_date = datetime.datetime.now(ist_timezone).strftime('%Y-%m-%d')
+        elif date_query.lower() in ["yesterday", "kal"]:
+            target_date = (datetime.datetime.now(ist_timezone) - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+        else:
+            target_date = date_query
+
+        safe_date = re.escape(target_date)
+        records = list(location_col.find({"date": {"$regex": safe_date}}).sort("_id", -1).limit(10))
+        if not records:
+            return f"Boss, mere paas {target_date} ki koi location history nahi hai."
+
+        history_text = f"Location history for {target_date}:\n"
+        for r in records:
+            history_text += f"- At {r['time']}, you were near {r['city']}. Weather was {r['weather']}.\n"
+        return history_text
+    except Exception as e:
+        logger.error(f"Location history error: {e}")
+        return "Database check karne me issue boss."
+
 # =======================================================
 # 🧠 CENTRALIZED MULTI-PROVIDER AGI LOGIC
 # =======================================================
-LLM_CALL_TIMEOUT = 25  
-MAX_IMAGE_B64_CHARS = 6_000_000  
+LLM_CALL_TIMEOUT = 25
+MAX_IMAGE_B64_CHARS = 6_000_000
 
-# 🎯 GROQ CURRENT PRODUCTION LINEUP (UPDATED)
 GROQ_MODEL_SET = {
     "openai/gpt-oss-120b",
     "llama-3.3-70b-versatile",
@@ -405,7 +595,6 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
             "history": history
         }
 
-    # 🚀 THE AGI/RGI MASTER PROMPT
     system_prompt = {
         "role": "system",
         "content": (
@@ -436,29 +625,15 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
     action_data2 = ""
     action_data3 = ""
 
-    # 🚀 PHASE 25: UPDATED AI SWARM (Latest Groq Lineup + Fallbacks)
     AVAILABLE_MODELS = [
-        # 🟢 GROQ (Primary - Production Models)
-        "openai/gpt-oss-120b",
-        "llama-3.3-70b-versatile",
-        "llama-3.1-8b-instant",
-        "qwen/qwen3.6-27b",
-        "openai/gpt-oss-20b",
-        "minimaxai/minimax-m2.7",
-
-        # 🔵 DEEPSEEK V4 SERIES (Secondary)
-        "deepseek-v4-flash",
-        "deepseek-v4-pro",
-        "deepseek-reasoner",
-
-        # 🟠 OPENROUTER (Free Text Fallbacks)
-        "google/gemma-4-26b-a4b-it:free",
-        "google/gemma-4-31b-it:free",
+        "openai/gpt-oss-120b", "llama-3.3-70b-versatile", "llama-3.1-8b-instant",
+        "qwen/qwen3.6-27b", "openai/gpt-oss-20b", "minimaxai/minimax-m2.7",
+        "deepseek-v4-flash", "deepseek-v4-pro", "deepseek-reasoner",
+        "google/gemma-4-26b-a4b-it:free", "google/gemma-4-31b-it:free",
     ]
 
     try:
         if image_base64:
-            logger.info("👁️ Vision payload detected! Routing to Native Groq Vision (Qwen 3.6).")
             vision_message = {
                 "role": "user",
                 "content": [
@@ -468,9 +643,8 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
             }
             vision_messages = messages + [vision_message]
             raw_reply = None
-            
+
             try:
-                # Direct route to Groq's multimodal Qwen model
                 response = await asyncio.wait_for(
                     client.chat.completions.create(
                         model="qwen/qwen3.6-27b",
@@ -491,16 +665,14 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
 
         else:
             messages.append({"role": "user", "content": user_msg})
-            
+
             response_message = None
             used_model = None
             client_used = None
 
-            # 🔄 FALLBACK ENGINE
             for model_name in AVAILABLE_MODELS:
                 try:
                     logger.info(f"🔄 Routing request to AI Matrix: {model_name}")
-
                     if model_name in GROQ_MODEL_SET:
                         response = await asyncio.wait_for(
                             client.chat.completions.create(
@@ -509,9 +681,9 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                             timeout=LLM_CALL_TIMEOUT
                         )
                         client_used = client
-
                     elif model_name in DEEPSEEK_MODEL_SET:
-                        if not deepseek_client: continue
+                        if not deepseek_client:
+                            continue
                         active_tools = saarthi_tools if "reasoner" not in model_name else None
                         response = await asyncio.wait_for(
                             deepseek_client.chat.completions.create(
@@ -520,9 +692,9 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                             timeout=LLM_CALL_TIMEOUT
                         )
                         client_used = deepseek_client
-
                     else:
-                        if not openrouter_client: continue
+                        if not openrouter_client:
+                            continue
                         response = await asyncio.wait_for(
                             openrouter_client.chat.completions.create(
                                 model=model_name, messages=messages, tools=saarthi_tools, max_tokens=600, temperature=0.7
@@ -530,16 +702,15 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                             timeout=LLM_CALL_TIMEOUT
                         )
                         client_used = openrouter_client
-                    
+
                     response_message = response.choices[0].message
                     used_model = model_name
                     logger.info(f"✅ AI Response generated successfully using: {used_model}")
                     break
-                
                 except Exception as e:
-                    logger.warning(f"⚠️ Model {model_name} failed or unavailable: {e}")
+                    logger.warning(f"⚠️ Model {model_name} failed: {e}")
                     continue
-            
+
             if not response_message:
                 raise Exception("All AI models in the fallback swarm failed!")
 
@@ -564,7 +735,6 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                     except (json.JSONDecodeError, TypeError):
                         args = {}
                     logger.info(f"⚙️ Jarvis called Tool: {func_name} with args {args}")
-
                     tool_result = "Action processed."
 
                     if func_name == "save_vision_to_memory":
@@ -581,7 +751,7 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                         tool_result = await asyncio.to_thread(search_deep_memory, args.get("query", ""))
                     elif func_name == "read_current_screen":
                         action_type = "READ_SCREEN"
-                        tool_result = "Trigger sent to Android to scan screen silently. Waiting for user payload."
+                        tool_result = "Trigger sent to Android to scan screen silently."
                     elif func_name == "execute_universal_command":
                         category = args.get("category", "SYSTEM")
                         target = args.get("target_name", "")
@@ -590,39 +760,33 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                         action_data1 = target
                         action_data2 = value
                         tool_result = f"Universal action {action_type} for {target} sent to Android."
-                    
                     elif func_name == "trigger_cloud_automation":
                         tool_result = await asyncio.to_thread(
-                            trigger_n8n_webhook, 
-                            args.get("workflow_name", "default_task"), 
+                            trigger_n8n_webhook,
+                            args.get("workflow_name", "default_task"),
                             args.get("payload_json", "{}")
                         )
+                    elif func_name == "manage_finance_database":
+                        tool_result = await asyncio.to_thread(
+                            execute_finance_db_action,
+                            args.get("action", "GET_BUDGET"),
+                            float(args.get("amount", 0.0))
+                        )
 
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "name": func_name,
-                        "content": tool_result
-                    })
+                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": tool_result})
 
                 try:
                     final_response = await asyncio.wait_for(
                         client_used.chat.completions.create(
-                            model=used_model,
-                            messages=messages,
-                            max_tokens=600,
-                            temperature=0.7
-                        ),
-                        timeout=LLM_CALL_TIMEOUT
+                            model=used_model, messages=messages, max_tokens=600, temperature=0.7
+                        ), timeout=LLM_CALL_TIMEOUT
                     )
                     raw_reply = final_response.choices[0].message.content
                 except Exception as final_err:
-                    logger.error(f"🔴 Final response synthesis after tool call failed: {final_err}")
-                    raw_reply = build_apology_json("Boss, action toh ho gaya but response banane mein glitch aa gaya. Kaam complete hone ka confirm kar lena.")
+                    raw_reply = build_apology_json("Boss, action toh ho gaya but response banane mein glitch aa gaya.")
             else:
                 raw_reply = response_message.content
 
-        # 🧠 AGI JSON PARSER ENGINE
         final_reply = raw_reply
         try:
             agi_data = extract_json_object(raw_reply)
@@ -630,53 +794,31 @@ async def generate_jarvis_response(user_msg: str, android_memory: str = "", imag
                 inner_thought = agi_data.get("inner_monologue", "")
                 emotion = agi_data.get("emotion", "neutral")
                 final_reply = agi_data.get("reply", raw_reply)
-                
-                logger.info(f"🧠 [JARVIS INNER THOUGHT]: {inner_thought}")
-                logger.info(f"🎭 [JARVIS EMOTION]: {emotion}")
+                logger.info(f"🧠 [JARVIS THOUGHT]: {inner_thought}")
         except Exception as parse_err:
-            logger.warning(f"⚠️ AGI JSON Parse Error (Using Raw Reply): {parse_err}")
+            pass
 
-        history = history + [
-            {"role": "user", "content": user_msg},
-            {"role": "assistant", "content": final_reply}
-        ]
+        history = history + [{"role": "user", "content": user_msg}, {"role": "assistant", "content": final_reply}]
         if len(history) > 12:
             history = history[-12:]
 
         return {
-            "type": "ai_response",
-            "reply": final_reply,
-            "action": action_type,
-            "action_data1": action_data1,
-            "action_data2": action_data2,
-            "action_data3": action_data3,
-            "history": history
+            "type": "ai_response", "reply": final_reply, "action": action_type,
+            "action_data1": action_data1, "action_data2": action_data2, "action_data3": action_data3, "history": history
         }
-
     except Exception as e:
         logger.error(f"🔴 AI Core Error: {e}")
-        return {
-            "type": "ai_response",
-            "reply": "Sorry boss, mere AGI neural net mein kuch glitch aa gaya hai. Main wapas retry kar raha hoon.",
-            "action": "NONE",
-            "action_data1": "",
-            "action_data2": "",
-            "action_data3": "",
-            "history": history
-        }
+        return {"type": "ai_response", "reply": "Sorry boss, mere AGI neural net mein glitch aaya hai.", "action": "NONE", "history": history}
 
 # =======================================================
-# 📸 SHARED VISION-SAVE HELPER
+# 📸 SHARED VISION-SAVE HELPER (Native Pinecone)
 # =======================================================
 async def save_vision_memory(image_b64: str, user_text: str, response_data: dict):
     if deep_mem_col is None:
-        logger.warning("⚠️ DB unavailable, skipping vision memory save.")
         return
     try:
         upload_result = await asyncio.to_thread(
-            cloudinary.uploader.upload,
-            f"data:image/jpeg;base64,{image_b64}",
-            folder="saarthi_vision"
+            cloudinary.uploader.upload, f"data:image/jpeg;base64,{image_b64}", folder="saarthi_vision"
         )
         image_url = upload_result.get("secure_url")
 
@@ -686,32 +828,24 @@ async def save_vision_memory(image_b64: str, user_text: str, response_data: dict
 
         def db_insert():
             return deep_mem_col.insert_one({
-                "type": "visual",
-                "content": mem_content,
-                "url": image_url,
-                "custom_name": "Requested Vision Memory",
-                "location": "Live Context",
-                "date": live_time.strftime('%Y-%m-%d'),
-                "time": live_time.strftime('%I:%M %p'),
-                "timestamp": datetime.datetime.now(),
-                "is_pinned": False
+                "type": "visual", "content": mem_content, "url": image_url,
+                "custom_name": "Requested Vision Memory", "location": "Live Context",
+                "date": live_time.strftime('%Y-%m-%d'), "time": live_time.strftime('%I:%M %p'),
+                "timestamp": datetime.datetime.now(), "is_pinned": False
             })
-
         doc_res = await asyncio.to_thread(db_insert)
 
-        if VECTOR_SERVER_URL:
+        if pinecone_index:
             try:
-                payload = {
-                    "id": str(doc_res.inserted_id),
-                    "text": mem_content,
-                    "metadata": {"content": mem_content, "url": image_url, "type": "visual"}
-                }
-                await asyncio.to_thread(requests.post, f"{VECTOR_SERVER_URL}/upsert", json=payload, timeout=10)
-                logger.info("🌲 Vector embedding successfully upserted to Render 2 (Pinecone)!")
+                def sync_upsert():
+                    model = get_embedder()
+                    vector = model.encode(mem_content).tolist()
+                    metadata = {"content": mem_content, "url": image_url, "type": "visual"}
+                    pinecone_index.upsert(vectors=[{"id": str(doc_res.inserted_id), "values": vector, "metadata": metadata}])
+                await asyncio.to_thread(sync_upsert)
+                logger.info("🌲 Vision embedding successfully upserted to Native Pinecone!")
             except Exception as ve_err:
-                logger.error(f"🔴 Render 2 Upsert Error: {ve_err}")
-
-        logger.info(f"✅ Vision memory saved. URL: {image_url}")
+                logger.error(f"🔴 Pinecone Upsert Error: {ve_err}")
     except Exception as cloud_err:
         logger.error(f"🔴 Cloudinary Save Error: {cloud_err}")
 
@@ -725,7 +859,6 @@ def get_max_amplitude(pcm_bytes):
     samples = struct.unpack(f"<{count}h", pcm_bytes[:count * 2])
     return max(abs(s) for s in samples)
 
-
 async def process_voice_buffer(audio_bytes: bytes, image_b64, websocket: WebSocket, session_history: list) -> list:
     wav_io = io.BytesIO()
     with wave.open(wav_io, 'wb') as wav_file:
@@ -738,38 +871,27 @@ async def process_voice_buffer(audio_bytes: bytes, image_b64, websocket: WebSock
     try:
         file_tuple = ("audio.wav", wav_io.read(), "audio/wav")
         transcription = await asyncio.wait_for(
-            client.audio.transcriptions.create(
-                file=file_tuple,
-                model="whisper-large-v3",
-                response_format="json"
-            ),
+            client.audio.transcriptions.create(file=file_tuple, model="whisper-large-v3", response_format="json"),
             timeout=LLM_CALL_TIMEOUT
         )
         user_text = transcription.text.strip()
-
         if not user_text:
             return session_history
 
         logger.info(f"🗣️ User Said (Live): {user_text}")
-        response_data = await generate_jarvis_response(
-            user_msg=user_text, image_base64=image_b64, history=session_history
-        )
+        response_data = await generate_jarvis_response(user_msg=user_text, image_base64=image_b64, history=session_history)
         session_history = response_data.pop("history", session_history)
         await manager.send_json(response_data, websocket)
 
         if response_data.get("action") == "SAVE_VISION" and image_b64:
             await save_vision_memory(image_b64, user_text, response_data)
-
     except Exception as e:
         logger.error(f"🔴 Whisper STT Error: {e}")
-
     return session_history
-
 
 @app.websocket("/ws/live_chat")
 async def live_chat_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
-
     audio_buffer = bytearray()
     is_speaking = False
     last_voice_time = time.time()
@@ -781,15 +903,13 @@ async def live_chat_endpoint(websocket: WebSocket):
     MAX_SILENCE_DURATION = 1.5
     MAX_BUFFER_SECONDS = 20
     MAX_BUFFER_BYTES = 16000 * 2 * MAX_BUFFER_SECONDS
-    MAX_TEXT_COMMAND_LEN = 3000
 
     try:
         while True:
             raw_data = await websocket.receive_text()
             try:
                 payload = json.loads(raw_data)
-            except json.JSONDecodeError:
-                await manager.send_json({"type": "error", "reply": "Invalid payload format."}, websocket)
+            except Exception:
                 continue
 
             msg_type = payload.get("type")
@@ -797,39 +917,25 @@ async def live_chat_endpoint(websocket: WebSocket):
             if msg_type == "heartbeat":
                 await manager.send_json({"type": "heartbeat_ack", "status": "alive"}, websocket)
                 continue
-
             if msg_type == "init":
-                client_name = payload.get("client", "Unknown")
                 token = payload.get("token", "")
-                if SAARTHI_API_KEY:
-                    if token == SAARTHI_API_KEY:
-                        authenticated = True
-                    else:
-                        await manager.send_json({"type": "error", "reply": "Unauthorized: Invalid token"}, websocket)
-                        await websocket.close(code=1008)
-                        return
-                logger.info(f"🛠️ Handshake successful with: {client_name}")
-                await manager.send_json({
-                    "type": "system",
-                    "reply": "Connection established with Supreme AGI Mainframe.",
-                    "action": "NONE"
-                }, websocket)
+                if SAARTHI_API_KEY and token == SAARTHI_API_KEY:
+                    authenticated = True
+                elif SAARTHI_API_KEY:
+                    await websocket.close(code=1008)
+                    return
+                await manager.send_json({"type": "system", "reply": "Connection established with Monolithic AGI.", "action": "NONE"}, websocket)
                 continue
 
             if not authenticated:
-                await manager.send_json({"type": "error", "reply": "Unauthorized. Send init with a valid token first."}, websocket)
                 continue
 
             if msg_type == "audio_stream":
                 b64_audio = payload.get("data")
                 b64_image = payload.get("image_data")
 
-                if b64_image:
-                    if len(b64_image) > MAX_IMAGE_B64_CHARS:
-                        logger.warning("⚠️ Oversized image frame dropped.")
-                    else:
-                        latest_received_image = b64_image
-                        logger.info("📸 Server visual buffer updated with latest frame.")
+                if b64_image and len(b64_image) <= MAX_IMAGE_B64_CHARS:
+                    latest_received_image = b64_image
 
                 if b64_audio:
                     try:
@@ -845,86 +951,44 @@ async def live_chat_endpoint(websocket: WebSocket):
 
                     if not is_speaking and len(audio_buffer) > 32000:
                         audio_buffer.clear()
-
                     force_flush = len(audio_buffer) > MAX_BUFFER_BYTES
                     silence_timeout = is_speaking and (time.time() - last_voice_time > MAX_SILENCE_DURATION)
 
                     if (silence_timeout or force_flush) and len(audio_buffer) > 16000:
-                        if force_flush:
-                            logger.warning("⚠️ Max buffer size reached, force-flushing audio for transcription.")
-                        else:
-                            logger.info("🎙️ VAD Triggered! Processing voice + image if any.")
-
                         is_speaking = False
                         buffer_copy = bytes(audio_buffer)
                         audio_buffer.clear()
-
-                        session_history = await process_voice_buffer(
-                            buffer_copy, latest_received_image, websocket, session_history
-                        )
+                        session_history = await process_voice_buffer(buffer_copy, latest_received_image, websocket, session_history)
                         latest_received_image = None
 
             elif msg_type == "text_command":
                 user_text = payload.get("data")
                 b64_image = payload.get("image_data")
-
                 if user_text:
-                    if len(user_text) > MAX_TEXT_COMMAND_LEN:
-                        await manager.send_json({"type": "error", "reply": "Message too long boss."}, websocket)
-                        continue
-
-                    logger.info(f"💬 Text Command (Live): {user_text}")
-                    response_data = await generate_jarvis_response(
-                        user_msg=user_text, image_base64=b64_image, history=session_history
-                    )
+                    response_data = await generate_jarvis_response(user_msg=user_text, image_base64=b64_image, history=session_history)
                     session_history = response_data.pop("history", session_history)
                     await manager.send_json(response_data, websocket)
-
                     if response_data.get("action") == "SAVE_VISION" and b64_image:
                         await save_vision_memory(b64_image, user_text, response_data)
 
     except WebSocketDisconnect:
-        logger.warning("⚠️ WebSocket disconnected cleanly by the client.")
         manager.disconnect(websocket)
     except Exception as e:
-        logger.error(f"💀 WebSocket Exception: {e}")
         manager.disconnect(websocket)
-
-# =======================================================
-# 🎙️ CLOUD TTS ENDPOINT
-# =======================================================
-VOICE_NAME_PATTERN = re.compile(r'^[a-zA-Z0-9_\-]+$')
 
 @app.post("/synthesize")
 async def synthesize_speech(req: SynthesizeReq):
     try:
         text = req.text.strip()
-        if not text:
-            raise HTTPException(status_code=400, detail="Text is empty")
-
         voice_key = req.voice
-        if not VOICE_NAME_PATTERN.match(voice_key):
-            raise HTTPException(status_code=400, detail="Invalid voice name")
-
         model_file = f"{voice_key}.onnx"
         model_path = os.path.abspath(model_file)
         base_dir = os.path.abspath(os.getcwd())
 
-        if not model_path.startswith(base_dir) or not os.path.isfile(model_path):
-            model_path = None
-
-        if model_path:
-            logger.info(f"🎙️ Piper Model found! Generating voice using {model_file}...")
+        if model_path.startswith(base_dir) and os.path.isfile(model_path):
             out_path = tempfile.mktemp(suffix=".wav")
-
             def run_piper():
-                subprocess.run(
-                    ["piper", "--model", model_path, "--output_file", out_path],
-                    input=text.encode("utf-8"),
-                    timeout=30,
-                    check=True
-                )
-
+                subprocess.run(["piper", "--model", model_path, "--output_file", out_path], input=text.encode("utf-8"), timeout=30, check=True)
             try:
                 await asyncio.to_thread(run_piper)
                 with open(out_path, "rb") as f:
@@ -933,44 +997,31 @@ async def synthesize_speech(req: SynthesizeReq):
                 if os.path.exists(out_path):
                     os.remove(out_path)
             return Response(content=audio_bytes, media_type="audio/wav")
-
         else:
-            logger.warning(f"⚠️ Model '{model_file}' not found! Falling back to gTTS (Cloud Voice).")
-            try:
-                from gtts import gTTS
-
-                def run_gtts():
-                    tts = gTTS(text=text, lang='hi')
-                    fp = io.BytesIO()
-                    tts.write_to_fp(fp)
-                    fp.seek(0)
-                    return fp.read()
-
-                audio_data = await asyncio.to_thread(run_gtts)
-                return Response(content=audio_data, media_type="audio/mpeg")
-            except ImportError:
-                raise HTTPException(status_code=500, detail="gTTS not installed. Please add 'gTTS' to requirements.txt")
-
-    except HTTPException:
-        raise
+            from gtts import gTTS
+            def run_gtts():
+                tts = gTTS(text=text, lang='hi')
+                fp = io.BytesIO()
+                tts.write_to_fp(fp)
+                fp.seek(0)
+                return fp.read()
+            audio_data = await asyncio.to_thread(run_gtts)
+            return Response(content=audio_data, media_type="audio/mpeg")
     except Exception as e:
-        logger.error(f"🔴 Synthesize Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_with_saarthi(request: ChatRequest):
-    res = await generate_jarvis_response(
-        request.message, request.android_memory, history=request.history
-    )
+    res = await generate_jarvis_response(request.message, request.android_memory, history=request.history)
     return ChatResponse(
-        reply=res["reply"],
-        action=res["action"],
-        action_data1=res.get("action_data1", ""),
-        action_data2=res.get("action_data2", ""),
-        action_data3=res.get("action_data3", ""),
-        history=res.get("history", [])
+        reply=res["reply"], action=res["action"],
+        action_data1=res.get("action_data1", ""), action_data2=res.get("action_data2", ""),
+        action_data3=res.get("action_data3", ""), history=res.get("history", [])
     )
 
+# =======================================================
+# 💾 SYSTEM ENDPOINTS (RESTORED FROM RENDER 1)
+# =======================================================
 @app.get("/api/check_update")
 async def check_update():
     return {
@@ -978,10 +1029,10 @@ async def check_update():
         "version_name": os.getenv("APP_VERSION_NAME", "Jarvis Mark 3.1"),
         "changelog": os.getenv(
             "APP_CHANGELOG",
-            "- Removed Deprecated Compound Models\n"
+            "- True Monolithic Zero-Deletion Architecture\n"
             "- Added GPT-OSS 120B and Minimax models to Swarm\n"
             "- Upgraded to Native Groq Multimodal Vision via Qwen 3.6\n"
-            "- Better Error Handling"
+            "- Internal Pinecone Engine Added"
         ),
         "download_url": os.getenv("APP_DOWNLOAD_URL", "https://aapki-website.com/jarvis_latest.apk")
     }
@@ -1020,138 +1071,6 @@ async def get_pc_status():
     except Exception:
         return {"battery": 12, "ram": 95, "is_locked": False}
 
-@app.post("/api/deep_memory/save", dependencies=[Depends(verify_api_key)])
-async def save_deep_memory(req: DeepMemorySaveReq):
-    if deep_mem_col is None:
-        raise HTTPException(status_code=503, detail="Database unavailable")
-    try:
-        def db_insert():
-            return deep_mem_col.insert_one({
-                "type": req.mem_type,
-                "content": req.content,
-                "custom_name": req.custom_name,
-                "location": req.location,
-                "date": req.date,
-                "time": req.time,
-                "timestamp": datetime.datetime.now(),
-                "is_pinned": False
-            })
-        doc_res = await asyncio.to_thread(db_insert)
-
-        if VECTOR_SERVER_URL:
-            try:
-                payload = {
-                    "id": str(doc_res.inserted_id),
-                    "text": req.content,
-                    "metadata": {"content": req.content, "type": req.mem_type}
-                }
-                await asyncio.to_thread(requests.post, f"{VECTOR_SERVER_URL}/upsert", json=payload, timeout=10)
-            except Exception as ve_err:
-                logger.error(f"🔴 Render 2 Upsert Error: {ve_err}")
-
-        return {"success": True, "message": "Deep Memory Locked in DB + Vector Index!"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/deep_memory/get_all", dependencies=[Depends(verify_api_key)])
-async def get_all_deep_memory(skip: int = 0, limit: int = 50):
-    if deep_mem_col is None:
-        raise HTTPException(status_code=503, detail="Database unavailable")
-    try:
-        limit = min(max(limit, 1), 200)
-        skip = max(skip, 0)
-
-        def db_query():
-            records = list(deep_mem_col.find().sort("timestamp", -1).skip(skip).limit(limit))
-            for r in records:
-                r["_id"] = str(r["_id"])
-            total = deep_mem_col.count_documents({})
-            return records, total
-
-        records, total = await asyncio.to_thread(db_query)
-        return {"memories": records, "total": total, "skip": skip, "limit": limit}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/deep_memory/action", dependencies=[Depends(verify_api_key)])
-async def action_deep_memory(req: DeepMemoryActionReq):
-    if deep_mem_col is None:
-        raise HTTPException(status_code=503, detail="Database unavailable")
-    try:
-        try:
-            obj_id = ObjectId(req.mem_id)
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid memory ID")
-
-        def db_op():
-            if req.action == "delete":
-                deep_mem_col.delete_one({"_id": obj_id})
-            elif req.action == "pin":
-                doc = deep_mem_col.find_one({"_id": obj_id})
-                if doc:
-                    deep_mem_col.update_one({"_id": obj_id}, {"$set": {"is_pinned": not doc.get("is_pinned", False)}})
-            elif req.action == "rename":
-                deep_mem_col.update_one({"_id": obj_id}, {"$set": {"custom_name": req.new_name}})
-
-        await asyncio.to_thread(db_op)
-
-        if req.action == "delete" and VECTOR_SERVER_URL:
-            try:
-                await asyncio.to_thread(requests.post, f"{VECTOR_SERVER_URL}/delete", json={"id": req.mem_id}, timeout=10)
-            except Exception as e:
-                logger.error(f"🔴 Render 2 Delete Vector Error: {e}")
-
-        return {"success": True}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-def search_deep_memory(query: str):
-    """Blocking function — always call via asyncio.to_thread from async code."""
-    try:
-        results_str = []
-
-        if VECTOR_SERVER_URL:
-            try:
-                res = requests.post(f"{VECTOR_SERVER_URL}/search", json={"query": query}, timeout=10)
-                if res.status_code == 200:
-                    for match in res.json().get('matches', []):
-                        score = round(match.get('score', 0), 2)
-                        meta = match.get('metadata', {})
-                        if score > 0.4:
-                            results_str.append(f"- [SEMANTIC MATCH - Confidence {score}] {meta.get('content', '')}")
-            except Exception as ve_err:
-                logger.error(f"🔴 Render 2 Search Error: {ve_err}")
-
-        if deep_mem_col is not None:
-            words = [re.escape(w) for w in query.split() if w.strip()]
-            regex_query = "|".join(words) if words else re.escape(query)
-            records = list(deep_mem_col.find(
-                {"content": {"$regex": regex_query, "$options": "i"}}
-            ).sort("timestamp", -1).limit(4))
-
-            for r in records:
-                results_str.append(
-                    f"- [{r.get('type', 'TEXT').upper()}] Date: {r.get('date', '')}, "
-                    f"Location: {r.get('location', '')}. Detail: {r.get('content', '')}"
-                )
-
-        if not results_str:
-            return "Deep memory mein is se judi koi jankari nahi mili boss."
-
-        seen = set()
-        ordered_unique = []
-        for item in results_str:
-            if item not in seen:
-                seen.add(item)
-                ordered_unique.append(item)
-
-        return "Deep Memory Results:\n" + "\n".join(ordered_unique)
-    except Exception as e:
-        logger.error(f"Deep memory search error: {e}")
-        return "Memory retrieve karne mein error aaya boss."
-
 @app.post("/api/save_memory", dependencies=[Depends(verify_api_key)])
 async def save_memory(req: MemoryRequest):
     if memory_col is None:
@@ -1170,7 +1089,7 @@ async def get_memory():
         return {"memory": ""}
     try:
         records = await asyncio.to_thread(lambda: list(memory_col.find({}, {"_id": 0})))
-        mem_str = "\n".join([f"- {r['key']}: {r['value']}" for r in records])
+        mem_str = "\n".join([f"- {r}: {v}" for r, v in [(item['key'], item['value']) for item in records]])
         return {"memory": mem_str}
     except Exception:
         return {"memory": ""}
@@ -1191,8 +1110,6 @@ async def pc_command(req: PCCommandReq):
         return {"success": True, "message": "PC Command queued!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-# main.py ke andar track_location ko replace karein
 
 @app.post("/api/track_location")
 async def track_location(req: LocationTrackRequest):
@@ -1224,15 +1141,15 @@ async def track_location(req: LocationTrackRequest):
 
                     # 🌪️ Universal Extreme Weather Detection
                     if (200 <= weather_id <= 299):
-                        alerts_detected.append(f"yahan thunderstorm (bhaari toofan) chal raha hai.")
+                        alerts_detected.append(f"yahan thunderstorm (bhaari toofan) chal raha hai")
                     elif (500 <= weather_id <= 511) or (weather_id == 522) or (weather_id == 531):
-                        alerts_detected.append(f"bhaari baarish aur badh (flood) jaisi sthiti ho sakti hai.")
+                        alerts_detected.append(f"bhaari baarish aur badh (flood) jaisi sthiti ho sakti hai")
                     elif (600 <= weather_id <= 699):
-                        alerts_detected.append(f"heavy snowfall ya barfbaari ka khatra hai.")
+                        alerts_detected.append(f"heavy snowfall ya barfbaari ka khatra hai")
                     elif weather_id == 781:
-                        alerts_detected.append(f"TORNADO ALERT! Kripya turant surakshit jagah par jayein!")
+                        alerts_detected.append(f"TORNADO ALERT! Kripya turant surakshit jagah par jayein")
                     elif weather_id == 762: # Volcanic ash
-                        alerts_detected.append(f"Volcanic ash detect hui hai.")
+                        alerts_detected.append(f"Volcanic ash detect hui hai")
             except Exception as e:
                 logger.error(f"Weather API Error: {e}")
 
@@ -1253,7 +1170,7 @@ async def track_location(req: LocationTrackRequest):
                 latest_quake = features[0]["properties"]
                 mag = latest_quake.get("mag")
                 place = latest_quake.get("place")
-                alerts_detected.append(f"Aapke 100km ke daayre mein ({place}) {mag} magnitude ka bhukamp detect hua hai.")
+                alerts_detected.append(f"Aapke 100km ke daayre mein ({place}) {mag} magnitude ka bhukamp detect hua hai")
         except Exception as e:
             logger.error(f"USGS Earthquake API Error: {e}")
 
@@ -1282,7 +1199,7 @@ async def track_location(req: LocationTrackRequest):
         # =========================================================
         if alerts_detected:
             combined_warnings = " aur ".join(alerts_detected)
-            final_alert = f"Boss alert! Aapki live location ({city_name}) par ek khatra detect hua hai: {combined_warnings} Kripya alert rahein."
+            final_alert = f"Boss alert! Aapki live location ({city_name}) par ek khatra detect hua hai: {combined_warnings}. Kripya alert rahein."
             return {"alert": final_alert, "status": "DANGER"}
 
         return {"status": "Safe. Route is clear."}
@@ -1290,149 +1207,234 @@ async def track_location(req: LocationTrackRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-def query_location_history(date_query: str):
+# =======================================================
+# 🌲 DEEP MEMORY & PINECONE ENDPOINTS
+# =======================================================
+@app.post("/api/deep_memory/save", dependencies=[Depends(verify_api_key)])
+async def save_deep_memory(req: DeepMemorySaveReq):
+    if deep_mem_col is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
     try:
-        if location_col is None:
-            return "Location database abhi available nahi boss."
+        def db_insert():
+            return deep_mem_col.insert_one({
+                "type": req.mem_type, "content": req.content, "custom_name": req.custom_name,
+                "location": req.location, "date": req.date, "time": req.time,
+                "timestamp": datetime.datetime.now(), "is_pinned": False
+            })
+        doc_res = await asyncio.to_thread(db_insert)
 
-        ist_timezone = pytz.timezone('Asia/Kolkata')
-        if date_query.lower() in ["today", "aaj"]:
-            target_date = datetime.datetime.now(ist_timezone).strftime('%Y-%m-%d')
-        elif date_query.lower() in ["yesterday", "kal"]:
-            target_date = (datetime.datetime.now(ist_timezone) - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
-        else:
-            target_date = date_query
-
-        safe_date = re.escape(target_date)
-        records = list(location_col.find({"date": {"$regex": safe_date}}).sort("_id", -1).limit(10))
-        if not records:
-            return f"Boss, mere paas {target_date} ki koi location history nahi hai."
-
-        history_text = f"Location history for {target_date}:\n"
-        for r in records:
-            history_text += f"- At {r['time']}, you were near {r['city']}. Weather was {r['weather']}.\n"
-        return history_text
+        if pinecone_index:
+            try:
+                def sync_upsert():
+                    model = get_embedder()
+                    vector = model.encode(req.content).tolist()
+                    metadata = {"content": req.content, "type": req.mem_type}
+                    pinecone_index.upsert(vectors=[{"id": str(doc_res.inserted_id), "values": vector, "metadata": metadata}])
+                await asyncio.to_thread(sync_upsert)
+            except Exception as ve_err:
+                logger.error(f"🔴 Pinecone Upsert Error: {ve_err}")
+        return {"success": True, "message": "Deep Memory Locked in DB + Vector Index!"}
     except Exception as e:
-        logger.error(f"Location history error: {e}")
-        return "Database check karne me issue hua boss."
+        raise HTTPException(status_code=500, detail=str(e))
 
-def perform_web_search(query: str):
+@app.get("/api/deep_memory/get_all", dependencies=[Depends(verify_api_key)])
+async def get_all_deep_memory(skip: int = 0, limit: int = 50):
+    if deep_mem_col is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
     try:
-        results = DDGS().text(query, max_results=2)
-        if not results:
-            return "Web par kuch nahi mila boss."
-        summary = "\n".join([f"- {r['title']}: {r['body']}" for r in results])
-        return f"Live Web Data for '{query}':\n{summary}"
-    except Exception as e:
-        logger.error(f"Web search error: {e}")
-        return "Search engine mein issue hai boss."
+        limit = min(max(limit, 1), 200)
+        skip = max(skip, 0)
 
-def get_live_weather(location: str):
-    if not WEATHER_API_KEY:
-        return "Weather API key missing hai boss."
-    try:
-        url = f"http://api.openweathermap.org/data/2.5/weather?q={location}&appid={WEATHER_API_KEY}&units=metric&lang=hi"
-        response = requests.get(url, timeout=8).json()
-        if response.get("cod") != 200:
-            return f"Sorry boss, mujhe {location} ka exact weather data nahi mil pa raha."
-        return f"Live Update: {location} mein abhi temp {response['main']['temp']}°C hai aur mausam '{response['weather'][0]['description']}' jaisa hai."
+        def db_query():
+            records = list(deep_mem_col.find().sort("timestamp", -1).skip(skip).limit(limit))
+            for r in records:
+                r["_id"] = str(r["_id"])
+            total = deep_mem_col.count_documents({})
+            return records, total
+
+        records, total = await asyncio.to_thread(db_query)
+        return {"memories": records, "total": total, "skip": skip, "limit": limit}
     except Exception as e:
-        logger.error(f"Weather API error: {e}")
-        return "Weather API mein thoda glitch aaya boss."
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/deep_memory/action", dependencies=[Depends(verify_api_key)])
+async def action_deep_memory(req: DeepMemoryActionReq):
+    if deep_mem_col is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    try:
+        obj_id = ObjectId(req.mem_id)
+        def db_op():
+            if req.action == "delete":
+                deep_mem_col.delete_one({"_id": obj_id})
+            elif req.action == "pin":
+                doc = deep_mem_col.find_one({"_id": obj_id})
+                if doc:
+                    deep_mem_col.update_one({"_id": obj_id}, {"$set": {"is_pinned": not doc.get("is_pinned", False)}})
+            elif req.action == "rename":
+                deep_mem_col.update_one({"_id": obj_id}, {"$set": {"custom_name": req.new_name}})
+        await asyncio.to_thread(db_op)
+
+        if req.action == "delete" and pinecone_index:
+            try:
+                await asyncio.to_thread(pinecone_index.delete, ids=[req.mem_id])
+            except Exception as e:
+                logger.error(f"🔴 Pinecone Delete Error: {e}")
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+def search_deep_memory(query: str):
+    try:
+        results_str = []
+        if pinecone_index:
+            try:
+                model = get_embedder()
+                query_vector = model.encode(query).tolist()
+                res = pinecone_index.query(vector=query_vector, top_k=3, include_metadata=True)
+                for match in res.get('matches', []):
+                    score = round(match.get('score', 0), 2)
+                    meta = match.get('metadata', {})
+                    if score > 0.4:
+                        results_str.append(f"- [SEMANTIC MATCH - Confidence {score}] {meta.get('content', '')}")
+            except Exception as ve_err:
+                logger.error(f"🔴 Pinecone Search Error: {ve_err}")
+
+        if deep_mem_col is not None:
+            words = [re.escape(w) for w in query.split() if w.strip()]
+            regex_query = "|".join(words) if words else re.escape(query)
+            records = list(deep_mem_col.find({"content": {"$regex": regex_query, "$options": "i"}}).sort("timestamp", -1).limit(4))
+            for r in records:
+                results_str.append(f"- [{r.get('type', 'TEXT').upper()}] Date: {r.get('date', '')}. Detail: {r.get('content', '')}")
+
+        if not results_str:
+            return "Deep memory mein is se judi koi jankari nahi mili boss."
+        seen = set()
+        ordered_unique = []
+        for item in results_str:
+            if item not in seen:
+                seen.add(item)
+                ordered_unique.append(item)
+        return "Deep Memory Results:\n" + "\n".join(ordered_unique)
+    except Exception as e:
+        return "Memory retrieve karne mein error aaya boss."
+
+# Vector API Endpoints Ported from Render 2
+@app.post("/upsert", dependencies=[Depends(verify_api_key)])
+def upsert_vector(req: UpsertRequest):
+    if not pinecone_index:
+        raise HTTPException(status_code=503, detail="Pinecone or Embed Model not configured")
+    try:
+        model = get_embedder()
+        vector = model.encode(req.text).tolist()
+        meta = req.metadata
+        meta["text_content"] = req.text
+        pinecone_index.upsert(vectors=[{"id": req.id, "values": vector, "metadata": meta}])
+        return {"success": True, "message": "Memory embedded and locked in Pinecone."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/search", dependencies=[Depends(verify_api_key)])
+def search_vector(req: SearchRequest):
+    if not pinecone_index:
+        raise HTTPException(status_code=503, detail="Pinecone or Embed Model not configured")
+    try:
+        model = get_embedder()
+        vector = model.encode(req.query).tolist()
+        res = pinecone_index.query(vector=vector, top_k=req.top_k, include_metadata=True)
+        matches = [{"id": m["id"], "score": m["score"], "metadata": m.get("metadata", {})} for m in res.get("matches", [])]
+        return {"matches": matches}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/delete", dependencies=[Depends(verify_api_key)])
+def delete_vector(req: DeleteRequest):
+    if not pinecone_index:
+        raise HTTPException(status_code=503, detail="Pinecone not configured")
+    try:
+        pinecone_index.delete(ids=[req.id])
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # =======================================================
-# 🚀 ENDPOINT: J.A.R.V.I.S. Push Alert Receiver (Env Var Secured)
+# 🚀 ENDPOINT: J.A.R.V.I.S. Push Alert Receiver (FCM + WEBSOCKET + QUEUE)
 # =======================================================
 @app.post("/api/remote_command")
 async def handle_remote_command(payload: RemoteCommandPayload, x_api_key: str = Header(None)):
+    global latest_remote_command
     
-    # 1. Security Check (Using Environment Variable)
+    # 1. Security Check
     if SAARTHI_API_KEY and x_api_key != SAARTHI_API_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized Boss")
-    
-    # 2. Android App ke LiveAudioEngine format mein data pack karna
-    alert_msg = {
-        "type": "ai_response",
-        "reply": payload.command,
-        "action": payload.type,
-        "action_data1": "",
-        "action_data2": ""
+
+    # 2. Queue command for Android GET fetching (If offline)
+    latest_remote_command = {
+        "command": payload.command,
+        "type": payload.type,
+        "sender": payload.sender
     }
-    
+
+    alert_msg = {"type": "ai_response", "reply": payload.command, "action": payload.type, "action_data1": "", "action_data2": ""}
     response_logs = []
-    
     try:
-        # 3. Live Mode (WebSocket) par bhejna (Agar app open hai)
-        await manager.broadcast(json.dumps(alert_msg)) 
+        # 3. Live Mode (WebSocket)
+        await manager.broadcast(json.dumps(alert_msg))
         response_logs.append("WebSocket Broadcast: Success")
         
-        # 4. DEEP SLEEP FIREBASE PUSH (Agar app background ya kill hai)
-        # 🚀 Token ab securely .env se fetch ho raha hai
+        # 4. DEEP SLEEP FIREBASE PUSH
         if FCM_TARGET_TOKEN:
             try:
-                # FCM sirf 'data' strings accept karta hai
                 message = messaging.Message(
-                    data={
-                        "command": payload.command,
-                        "type": payload.type,
-                        "sender": payload.sender
-                    },
+                    data={"command": payload.command, "type": payload.type, "sender": payload.sender},
                     token=FCM_TARGET_TOKEN
                 )
                 response = messaging.send(message)
                 response_logs.append(f"FCM Push: Success (ID: {response})")
             except Exception as fcm_err:
                 response_logs.append(f"FCM Push Failed: {fcm_err}")
-                logger.error(f"FCM Push Error: {fcm_err}")
         else:
             response_logs.append("FCM Push Skipped: Token not found in Environment Variables")
-            logger.warning("FCM_TARGET_TOKEN is missing in Render ENV!")
-
-        return {"status": "success", "message": "Alert processed", "details": response_logs}
+            
+        return {"status": "success", "message": "Alert processed and queued", "details": response_logs}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to transmit: {str(e)}")
 
 # =======================================================
-# 🛡️ GLOBAL EXCEPTION HANDLER
+# 🚀 NEW ENDPOINT: ANDROID FETCH ROUTE
 # =======================================================
+@app.get("/api/get_remote_command")
+async def fetch_remote_command(x_api_key: str = Header(None)):
+    global latest_remote_command
+    
+    if SAARTHI_API_KEY and x_api_key != SAARTHI_API_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized Boss")
+        
+    if latest_remote_command:
+        # Fetch and clear the queue
+        cmd = latest_remote_command
+        latest_remote_command = None
+        return {"has_command": True, "data": cmd}
+    else:
+        return {"has_command": False}
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"💀 Unhandled Exception on {request.url.path}: {exc}")
-    return JSONResponse(
-        status_code=500,
-        content={"error": "Internal server error boss. Team ko notify kar diya gaya hai."}
-    )
+    return JSONResponse(status_code=500, content={"error": "Internal server error boss."})
 
-# =======================================================
-# 🔌 STARTUP / SHUTDOWN EVENTS
-# =======================================================
 @app.on_event("startup")
 async def startup_event():
-    logger.info("🚀 Saarthi AGI Core (Main Backend) booting up...")
-    if not api_key:
-        logger.error("🚨 GROQ_API_KEY missing — /chat and websocket will fail!")
-    if not DEEPSEEK_API_KEY:
-        logger.warning("⚠️ DEEPSEEK_API_KEY missing — DeepSeek models won't run.")
-    if not OPENROUTER_API_KEY:
-        logger.warning("⚠️ OPENROUTER_API_KEY missing — OpenRouter fallback models won't run.")
-    if not MONGO_URI:
-        logger.error("🚨 MONGO_URI missing — all DB features disabled!")
-    if not VECTOR_SERVER_URL:
-        logger.warning("⚠️ VECTOR_SERVER_URL missing — Deep Memory Semantic Search will not work!")
-    if not N8N_WEBHOOK_URL:
-        logger.warning("⚠️ N8N_WEBHOOK_URL missing — Cloud Automation will fail!")
-    if not SAARTHI_API_KEY:
-        logger.warning("⚠️ SAARTHI_API_KEY not set — sensitive endpoints are UNPROTECTED. Set it in production!")
-
+    logger.info("🚀 Saarthi AGI Monolithic Core booting up...")
     asyncio.create_task(cleanup_rate_limiter())
+    # Port already bound by this point. Warm embedder in background so first /search isn't slow.
+    asyncio.create_task(asyncio.to_thread(get_embedder))
 
 @app.on_event("shutdown")
 def shutdown_event():
     if mongo_client:
         mongo_client.close()
-        logger.info("🔌 MongoDB connection closed gracefully.")
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", 10000))
+    port = int(os.environ.get("PORT", 7860))
     uvicorn.run(app, host="0.0.0.0", port=port)
