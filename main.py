@@ -77,8 +77,8 @@ N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")
 FCM_TARGET_TOKEN = os.getenv("FCM_TARGET_TOKEN")
 NEON_DB_URL = os.getenv("NEON_DB_URL") 
 
-# Version bump: 51.1.5 (Omni-Threat & Finance DB Verified)
-app = FastAPI(title="Saarthi AGI Core", version="51.1.5")
+# Version bump: 51.1.6 (WhatsApp Routing Fixed)
+app = FastAPI(title="Saarthi AGI Core", version="51.1.6")
 
 # ==========================================
 # 🌐 CORS & RATE LIMITER
@@ -305,7 +305,7 @@ class DeleteRequest(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "🟢 Saarthi AGI Omni-Core is Online (V51.1.5 Monolithic)!", "service": "Cognitive Engine Active"}
+    return {"status": "🟢 Saarthi AGI Omni-Core is Online (V51.1.6 Monolithic)!", "service": "Cognitive Engine Active"}
 
 @app.get("/health")
 async def health_check():
@@ -450,7 +450,7 @@ def trigger_n8n_webhook(workflow_name: str, payload_str: str):
         logger.error(f"n8n Webhook error: {e}")
         return "Failed to trigger cloud automation. Server might be down."
 
-# 🚀 NAYA: URL Cleaner Armor applied!# 🚀 NAYA: Smart Finance Calculator (Auto Math & Modify)
+# 🚀 NAYA: Smart Finance Calculator (Auto Math & Modify)
 def execute_finance_db_action(action: str, amount: float = 0.0):
     raw_url = os.getenv("NEON_DB_URL", "")
     clean_db_url = raw_url.strip().strip('"').strip("'")
@@ -522,6 +522,8 @@ def execute_finance_db_action(action: str, amount: float = 0.0):
             conn.close()
             return "Unknown finance action."
             
+    except ImportError:
+        return "psycopg2 library is missing in Omni-Core. Cannot execute SQL."
     except Exception as e:
         logger.error(f"Finance DB Error: {e}")
         return f"Neon Database error boss: {str(e)}"
@@ -1427,23 +1429,6 @@ async def fetch_remote_command(x_api_key: str = Header(None)):
     else:
         return {"has_command": False}
 
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"💀 Unhandled Exception on {request.url.path}: {exc}")
-    return JSONResponse(status_code=500, content={"error": "Internal server error boss."})
-
-@app.on_event("startup")
-async def startup_event():
-    logger.info("🚀 Saarthi AGI Monolithic Core booting up...")
-    asyncio.create_task(cleanup_rate_limiter())
-    # Port already bound by this point. Warm embedder in background so first /search isn't slow.
-    asyncio.create_task(asyncio.to_thread(get_embedder))
-
-@app.on_event("shutdown")
-def shutdown_event():
-    if mongo_client:
-        mongo_client.close()
-
 # =======================================================
 # 📱 WHATSAPP SMART AUTO-REPLY ENGINE
 # =======================================================
@@ -1496,6 +1481,23 @@ async def whatsapp_auto_reply(req: WhatsAppIncomingReq, x_api_key: str = Header(
     except Exception as e:
         logger.error(f"WhatsApp Engine Error: {e}")
         return {"reply": "IGNORE"}
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"💀 Unhandled Exception on {request.url.path}: {exc}")
+    return JSONResponse(status_code=500, content={"error": "Internal server error boss."})
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("🚀 Saarthi AGI Monolithic Core booting up...")
+    asyncio.create_task(cleanup_rate_limiter())
+    # Port already bound by this point. Warm embedder in background so first /search isn't slow.
+    asyncio.create_task(asyncio.to_thread(get_embedder))
+
+@app.on_event("shutdown")
+def shutdown_event():
+    if mongo_client:
+        mongo_client.close()
 
 if __name__ == "__main__":
     import uvicorn
