@@ -1429,6 +1429,8 @@ async def fetch_remote_command(x_api_key: str = Header(None)):
     else:
         return {"has_command": False}
 
+# ... aapka saara upar ka code ...
+
 # =======================================================
 # 📱 WHATSAPP SMART AUTO-REPLY ENGINE
 # =======================================================
