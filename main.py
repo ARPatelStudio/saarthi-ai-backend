@@ -1444,6 +1444,59 @@ def shutdown_event():
     if mongo_client:
         mongo_client.close()
 
+# =======================================================
+# 📱 WHATSAPP SMART AUTO-REPLY ENGINE
+# =======================================================
+class WhatsAppIncomingReq(BaseModel):
+    sender_name: str
+    message: str
+
+@app.post("/api/whatsapp_reply")
+async def whatsapp_auto_reply(req: WhatsAppIncomingReq, x_api_key: str = Header(None)):
+    # 1. Security Check
+    if SAARTHI_API_KEY and x_api_key != SAARTHI_API_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized Boss")
+        
+    try:
+        sender = req.sender_name
+        msg = req.message.strip().lower()
+        
+        # Basic hardcoded spam/ignore filters
+        ignore_words = ["hmm", "ok", "k", "acha", "thik", "ha", "haan", "👍", "🙏"]
+        if msg in ignore_words or len(msg) < 2:
+            return {"reply": "IGNORE"}
+
+        # 🤖 AI Brain for WhatsApp
+        system_prompt = (
+            "You are Jarvis, the AI Secretary for your Boss (AR PATEL STUDIO). "
+            f"Your Boss is currently busy. A trusted contact named '{sender}' just sent this WhatsApp message: '{req.message}'.\n\n"
+            "RULE 1: Write a short, natural, friendly Hinglish reply on behalf of your Boss.\n"
+            "RULE 2: If the message is spam, promotional, or doesn't need a reply, output exactly the word: IGNORE\n"
+            "RULE 3: Keep it human-like (e.g., 'Boss abhi thoda busy hain, main unka AI assistant Jarvis bol raha hu. Wo free hokar aapse baat karenge.').\n"
+            "Do NOT output JSON. Just output the raw text reply."
+        )
+
+        response = await asyncio.wait_for(
+            client.chat.completions.create(
+                model="llama-3.3-70b-versatile", # Using fast Llama for quick replies
+                messages=[{"role": "system", "content": system_prompt}],
+                max_tokens=100,
+                temperature=0.6
+            ),
+            timeout=15
+        )
+        
+        ai_reply = response.choices[0].message.content.strip()
+        
+        if "IGNORE" in ai_reply.upper() or not ai_reply:
+            return {"reply": "IGNORE"}
+            
+        return {"reply": ai_reply}
+        
+    except Exception as e:
+        logger.error(f"WhatsApp Engine Error: {e}")
+        return {"reply": "IGNORE"}
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 7860))
