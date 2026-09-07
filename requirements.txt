@@ -16,3 +16,4 @@ cloudinary
 piper-tts
 gTTS
 firebase-admin
+pinecone
