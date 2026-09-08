@@ -16,3 +16,4 @@ cloudinary
 piper-tts
 gTTS
 firebase-admin
+yfinance>=0.2.37
