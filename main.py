@@ -49,8 +49,19 @@ from mongo_brain.mongo_engine import init_mongo_engine
 try:
     from reminder_scheduler import start_reminder_scheduler
 except ImportError:
-    # Fallback in case it's inside mongo_brain folder
-    from mongo_brain.reminder_scheduler import start_reminder_scheduler
+    try:
+        from mongo_brain.reminder_scheduler import start_reminder_scheduler
+    except ImportError:
+        start_reminder_scheduler = None
+
+# ⏰ REMINDER NLP PARSER
+try:
+    from reminder_parser import parse_and_save_reminder
+except ImportError:
+    try:
+        from mongo_brain.reminder_parser import parse_and_save_reminder
+    except ImportError:
+        parse_and_save_reminder = None
 
 # ==========================================
 # 🪵 LOGS SETUP
@@ -87,7 +98,7 @@ FCM_TARGET_TOKEN = os.getenv("FCM_TARGET_TOKEN")
 NEON_DB_URL = os.getenv("NEON_DB_URL") 
 VECTOR_SERVER_URL = os.getenv("VECTOR_SERVER_URL")
 
-app = FastAPI(title="Saarthi AGI Core", version="52.0.0")
+app = FastAPI(title="Saarthi AGI Core", version="52.1.0")
 
 ALLOWED_ORIGINS_ENV = os.getenv("ALLOWED_ORIGINS", "*")
 if ALLOWED_ORIGINS_ENV.strip() == "*":
@@ -149,7 +160,7 @@ async def verify_api_key(x_api_key: str = Header(default=None)):
 mongo_client, location_col, memory_col, pc_col, deep_mem_col, pc_status_col, reminders_col = init_mongo_engine()
 
 # Start the Background Scheduler Thread (If DB is connected)
-if reminders_col is not None:
+if reminders_col is not None and start_reminder_scheduler is not None:
     try:
         start_reminder_scheduler(reminders_col)
         logger.info("⏰ Render Background Reminder Scheduler Injected & Started!")
@@ -167,6 +178,10 @@ class PCStatusReq(BaseModel): battery: int; ram: int; is_locked: bool
 class ChatResponse(BaseModel): reply: str; action: str = "NONE"; action_data1: str = ""; action_data2: str = ""; action_data3: str = ""; history: List[dict] = Field(default_factory=list)
 class SynthesizeReq(BaseModel): text: str; voice: str = Field(default="papa_vocals")
 class RemoteCommandPayload(BaseModel): target_user: str; command: str; type: str; sender: str
+
+# ⏰ NEW: Reminder Engine Requests
+class ReminderCreateReq(BaseModel): command: str; user_id: str = "boss_1"; timezone: str = "Asia/Kolkata"
+class ReminderSyncReq(BaseModel): user_id: str = "boss_1"
 
 @app.get("/")
 async def root(): return {"status": "🟢 Saarthi Omni-Core (Microservice Mode) Online!"}
@@ -453,6 +468,58 @@ async def get_all_deep_memory(skip: int = 0, limit: int = 50):
         total = await asyncio.to_thread(deep_mem_col.count_documents, {})
         return {"memories": records, "total": total, "skip": skip, "limit": limit}
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+
+# =======================================================
+# ⏰ SMART REMINDER ENGINE ENDPOINTS
+# =======================================================
+@app.post("/api/reminder/create", dependencies=[Depends(verify_api_key)])
+async def create_reminder(req: ReminderCreateReq):
+    if reminders_col is None: 
+        raise HTTPException(status_code=503, detail="Reminders DB unavailable")
+    if parse_and_save_reminder is None: 
+        raise HTTPException(status_code=500, detail="reminder_parser module missing")
+        
+    try:
+        result = await asyncio.to_thread(
+            parse_and_save_reminder, 
+            req.command, 
+            req.user_id, 
+            reminders_col, 
+            req.timezone
+        )
+        if result:
+            result["_id"] = str(result["_id"])
+            if "scheduledAt" in result: result["scheduledAt"] = result["scheduledAt"].isoformat()
+            if "createdAt" in result: result["createdAt"] = result["createdAt"].isoformat()
+            return {"success": True, "reminder": result}
+            
+        return {"success": False, "message": "Failed to parse command into a reminder."}
+    except Exception as e: 
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/reminder/sync", dependencies=[Depends(verify_api_key)])
+async def sync_reminders(req: ReminderSyncReq):
+    if reminders_col is None: 
+        raise HTTPException(status_code=503, detail="Reminders DB unavailable")
+        
+    try:
+        now_utc = datetime.datetime.utcnow()
+        records = await asyncio.to_thread(
+            lambda: list(reminders_col.find({
+                "userId": req.user_id, 
+                "status": "PENDING", 
+                "scheduledAt": {"$gte": now_utc}
+            }).sort("scheduledAt", 1))
+        )
+        for r in records:
+            r["_id"] = str(r["_id"])
+            if "scheduledAt" in r: r["scheduledAt"] = r["scheduledAt"].isoformat()
+            if "createdAt" in r: r["createdAt"] = r["createdAt"].isoformat()
+            if r.get("lastTriggeredAt"): r["lastTriggeredAt"] = r["lastTriggeredAt"].isoformat()
+            
+        return {"success": True, "reminders": records}
+    except Exception as e: 
+        raise HTTPException(status_code=500, detail=str(e))
 
 # =======================================================
 # 🎙️ VAD & AUDIO LOGIC
