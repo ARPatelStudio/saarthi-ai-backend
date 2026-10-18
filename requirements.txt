@@ -18,3 +18,5 @@ gTTS
 firebase-admin
 yfinance>=0.2.37
 psycopg2-binary>=2.9.9
+google-generativeai
+python-dateutil
