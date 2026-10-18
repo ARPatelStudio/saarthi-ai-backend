@@ -15,7 +15,8 @@ def calculate_next_occurrence(rrule_str: str, timezone_str: str):
         tz = pytz.timezone(timezone_str)
         now_local = datetime.datetime.now(tz)
         rule = rrulestr(rrule_str)
-        # Find the next date after current time
+        
+        # Find the next date strictly after current time
         next_date_local = rule.after(now_local)
         
         if next_date_local:
@@ -32,6 +33,10 @@ def start_reminder_scheduler(reminders_col):
     
     def scheduler_loop():
         logger.info("🟢 Python Autonomous Scheduler Loop Started!")
+        
+        # Wait a few seconds before the first run to allow the main server to start fully
+        time.sleep(5)
+        
         while True:
             try:
                 now_utc = datetime.datetime.utcnow()
@@ -48,24 +53,39 @@ def start_reminder_scheduler(reminders_col):
                 for reminder in due_reminders:
                     task_id = reminder["_id"]
                     
-                    # 2. Trigger Action (Log it, or notify Android app via FCM/Socket)
-                    # Example: fcm_send_push(reminder['userId'], reminder['title'])
-                    logger.info(f"🚨 ALARM TRIGGER: {reminder['title']}")
+                    # -------------------------------------------------------------
+                    # 2. TRIGGER ACTION (FCM PUSH TO WAKE UP ANDROID APP)
+                    # -------------------------------------------------------------
+                    logger.info(f"🚨 ALARM TRIGGER: {reminder.get('title', 'Unknown Task')}")
+                    
+                    # TODO Boss: Yahan aap FCM Push ya WebSocket Broadcast call kar sakte hain.
+                    # Example:
+                    # if FCM_TARGET_TOKEN:
+                    #     messaging.send(messaging.Message(
+                    #         data={'command': 'SYNC_REMINDERS', 'type': 'REMINDER_WAKEUP'},
+                    #         token=FCM_TARGET_TOKEN
+                    #     ))
+                    # -------------------------------------------------------------
                     
                     update_payload = {"lastTriggeredAt": now_utc}
                     
-                    # 3. Calculate next Loop or Complete
+                    # 3. Calculate next Loop for Recurring Tasks
                     if reminder.get("isRecurring") and reminder.get("rrule"):
-                        next_date_utc = calculate_next_occurrence(reminder["rrule"], reminder.get("timezone", "Asia/Kolkata"))
+                        next_date_utc = calculate_next_occurrence(
+                            reminder["rrule"], 
+                            reminder.get("timezone", "Asia/Kolkata")
+                        )
+                        
                         if next_date_utc:
                             update_payload["scheduledAt"] = next_date_utc
                             update_payload["status"] = "PENDING"
-                            logger.info(f"🔄 Rescheduled '{reminder['title']}' to {next_date_utc}")
+                            logger.info(f"🔄 Rescheduled '{reminder.get('title')}' to {next_date_utc}")
                         else:
+                            # Occurrences finished (e.g., COUNT reached)
                             update_payload["status"] = "COMPLETED"
                             update_payload["completedAt"] = now_utc
                     else:
-                        # One-time task
+                        # One-time task is done
                         update_payload["status"] = "COMPLETED"
                         update_payload["completedAt"] = now_utc
                     
@@ -83,6 +103,6 @@ def start_reminder_scheduler(reminders_col):
             # Sleep for 60 seconds before next check
             time.sleep(60)
 
-    # Start the daemon thread so it runs continuously in the background
+    # Start the daemon thread so it runs continuously in the background without blocking FastAPI
     thread = threading.Thread(target=scheduler_loop, daemon=True)
     thread.start()
