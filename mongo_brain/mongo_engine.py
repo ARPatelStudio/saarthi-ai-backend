@@ -9,7 +9,7 @@ def init_mongo_engine():
     """Initializes and returns MongoDB client and all collections."""
     mongo_uri = os.getenv("MONGO_URI")
     mongo_client = None
-    location_col = memory_col = pc_col = deep_mem_col = pc_status_col = None
+    location_col = memory_col = pc_col = deep_mem_col = pc_status_col = reminders_col = None
 
     if mongo_uri:
         try:
@@ -24,12 +24,18 @@ def init_mongo_engine():
             deep_mem_col = db["deep_memory"]
             pc_status_col = db["pc_status"]
             
+            # 🧠 NEW: Reminder & Memory Engine Collection
+            reminders_col = db["reminders"]
+            
             # 3. Verify Connection
             mongo_client.admin.command('ping')
             
             # 4. Set Indexes for fast searching
             deep_mem_col.create_index("timestamp")
             location_col.create_index("date")
+            
+            # 🧠 NEW: Fast indexing for scheduler to instantly find due tasks
+            reminders_col.create_index([("status", 1), ("scheduledAt", 1)])
             
             logger.info("🟢 Mongo Brain: Database Connected & Indexes Verified Successfully!")
         except Exception as e:
@@ -38,4 +44,4 @@ def init_mongo_engine():
     else:
         logger.warning("🚨 MONGO_URI missing from environment variables! DB features disabled.")
 
-    return mongo_client, location_col, memory_col, pc_col, deep_mem_col, pc_status_col
+    return mongo_client, location_col, memory_col, pc_col, deep_mem_col, pc_status_col, reminders_col
