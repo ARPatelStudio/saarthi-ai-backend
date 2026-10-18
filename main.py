@@ -44,8 +44,13 @@ from studio_brain.studio_engine import check_render_status
 from sentinel_brain.sentinel_engine import run_security_scan
 from research_brain.research_engine import deep_research
 
-# 🧠 MONGO BRAIN
+# 🧠 MONGO BRAIN & SCHEDULER
 from mongo_brain.mongo_engine import init_mongo_engine
+try:
+    from reminder_scheduler import start_reminder_scheduler
+except ImportError:
+    # Fallback in case it's inside mongo_brain folder
+    from mongo_brain.reminder_scheduler import start_reminder_scheduler
 
 # ==========================================
 # 🪵 LOGS SETUP
@@ -139,9 +144,17 @@ async def verify_api_key(x_api_key: str = Header(default=None)):
     return True
 
 # ==========================================
-# 💾 MONGO BRAIN SETUP
+# 💾 MONGO BRAIN & SCHEDULER SETUP (Mark 23.2)
 # ==========================================
-mongo_client, location_col, memory_col, pc_col, deep_mem_col, pc_status_col = init_mongo_engine()
+mongo_client, location_col, memory_col, pc_col, deep_mem_col, pc_status_col, reminders_col = init_mongo_engine()
+
+# Start the Background Scheduler Thread (If DB is connected)
+if reminders_col is not None:
+    try:
+        start_reminder_scheduler(reminders_col)
+        logger.info("⏰ Render Background Reminder Scheduler Injected & Started!")
+    except Exception as e:
+        logger.error(f"🔴 Failed to start reminder scheduler: {e}")
 
 # 📦 PYDANTIC MODELS
 class ChatRequest(BaseModel): message: str = Field(...); android_memory: str = Field(default=""); history: List[dict] = Field(default_factory=list)
